@@ -5,17 +5,6 @@ buildscript {
     repositories {
         mavenLocal()
         google()
-        repositories {
-            maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-public/' }
-            maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox/' }
-            maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-preview/' }
-            maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-snapshot' }
-//            maven { url 'http://cp01-rdqa04-dev121.cp01.baidu.com:8666/repository/searchbox/' }
-            maven { url 'http://maven.scm.baidu.com:8081/nexus/content/repositories/central/' }
-            maven { url 'http://maven.scm.baidu.com:8081/nexus/content/repositories/jcenter/' }
-            maven { url 'http://maven.scm.baidu.com:8081/nexus' }
-            maven { url 'http://172.18.53.2:8081/nexus/content/groups/public' }
-        }
         jcenter()
     }
     dependencies {
@@ -32,16 +21,8 @@ allprojects {
     repositories {
         mavenLocal()
         google()
-        maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-public/' }
-        maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox/' }
-        maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-preview' }
-        maven { url 'http://maven.mbd.baidu.com:8666/repository/searchbox-snapshot' }
-        maven { url 'http://maven.scm.baidu.com:8081/nexus/content/repositories/central/' }
-        maven { url 'http://maven.scm.baidu.com:8081/nexus/content/repositories/jcenter/' }
         mavenCentral()
         jcenter()
-//        maven { url 'http://172.18.53.2:8081/nexus/content/groups/public' }
-//        maven { url 'https://dl.google.com/dl/android/maven2/' }
     }
 }
 
