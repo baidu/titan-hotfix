@@ -1,0 +1,10 @@
+apply plugin: 'java'
+sourceCompatibility = 1.7
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.11'
+    compile 'com.android.support:support-annotations:27.1.1'
+}
+
+
+apply from: rootProject.file('buildSrc/release-publishing.gradle')

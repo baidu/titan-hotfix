@@ -1,0 +1,245 @@
+import com.squareup.javapoet.FieldSpec
+import com.squareup.javapoet.JavaFile
+import com.squareup.javapoet.MethodSpec
+import com.squareup.javapoet.ClassName
+import com.squareup.javapoet.TypeSpec
+import javax.lang.model.element.Modifier
+
+
+apply plugin: 'java'
+sourceCompatibility = 1.7
+//archivesBaseName = 'com.baidu.titan.sdk'
+
+ext {
+    generateSourceBase = project.file("${project.buildDir}/generated/java")
+}
+
+
+sourceSets {
+    main {
+        java {
+            srcDirs += generateSourceBase
+        }
+    }
+}
+
+tasks.withType(Javadoc) {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.addStringOption('encoding', 'UTF-8')
+    options.addStringOption('charSet', 'UTF-8')
+}
+
+
+task generateSource(type: Copy) {
+    generateInteceptorClass(project)
+    generateInterceptorParameters(project)
+}
+
+
+def generateInteceptorClass(def project) {
+    def runtimeSourceDir = generateSourceBase
+    def parsFile = file(project.file("src/main/resources/assets/titan/titan_paras"))
+
+    ClassName intercpetResult = ClassName.get("com.baidu.titan.sdk.runtime", "InterceptResult")
+//    ClassName keepAnnotation = ClassName.get("android.support.annotation", "Keep")
+
+    TypeSpec.Builder intercptableBuilder = TypeSpec.interfaceBuilder("Interceptable")
+            .addModifiers(Modifier.PUBLIC)
+//            .addAnnotation(keepAnnotation)
+
+    TypeSpec.Builder simpleInterceptorBuilder = TypeSpec.classBuilder("SimpleInterceptor")
+            .addModifiers(Modifier.PUBLIC)
+            .addSuperinterface(ClassName.get("com.baidu.titan.sdk.runtime", "Interceptable"))
+//            .addAnnotation(keepAnnotation)
+
+    ClassName initContext = ClassName.get("com.baidu.titan.sdk.runtime", "InitContext")
+
+    // begin : init method
+
+    MethodSpec invokeUnInit = MethodSpec.methodBuilder("invokeUnInit")
+            .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .returns(void.class)
+            .addJavadoc("invokeUnit\n").build()
+    intercptableBuilder.addMethod(invokeUnInit)
+
+    MethodSpec simpleInvokeUnInit = MethodSpec.methodBuilder("invokeUnInit")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .returns(void.class).build()
+    simpleInterceptorBuilder.addMethod(simpleInvokeUnInit);
+
+
+    MethodSpec invokeInitBody = MethodSpec.methodBuilder("invokeInitBody")
+            .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .returns(void.class)
+            .addJavadoc("invokeInitBody\n")
+            .build()
+    intercptableBuilder.addMethod(invokeInitBody)
+
+    MethodSpec simpleInvokeInitBody = MethodSpec.methodBuilder("invokeInitBody")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .returns(void.class)
+            .build()
+    simpleInterceptorBuilder.addMethod(simpleInvokeInitBody)
+
+    // end : init method
+
+
+    // begin : invokeCommon
+
+    MethodSpec invokeCommon = MethodSpec.methodBuilder("invokeCommon")
+            .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
+            .addParameter(int.class, "methodId")
+            .addParameter(Object.class, "thisObj")
+            .addParameter(Object[].class, "args")
+            .returns(intercpetResult)
+            .addJavadoc("invokeCommon\n")
+            .build()
+    intercptableBuilder.addMethod(invokeCommon)
+
+    MethodSpec simpleInvokeCommon = MethodSpec.methodBuilder("invokeCommon")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(Object.class, "thisObj")
+            .addParameter(Object[].class, "args")
+            .returns(intercpetResult)
+            .addCode("return null;\n")
+            .build()
+    simpleInterceptorBuilder.addMethod(simpleInvokeCommon)
+
+    // end : invokeCommon
+
+
+    // begin : invokeSpecial
+
+    parsFile.eachLine { paras->
+        def methodName = "invoke" + paras
+
+        MethodSpec.Builder invokeMethodBuilder = MethodSpec.methodBuilder(methodName)
+                .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
+                .addParameter(int.class, "methodId")
+
+        MethodSpec.Builder simpleInvokeMethodBuilder = MethodSpec.methodBuilder(methodName)
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(int.class, "methodId")
+                .addAnnotation(Override.class)
+
+        invokeMethodBuilder.addParameter(Object.class, "thisObj")
+        simpleInvokeMethodBuilder.addParameter(Object.class, "thisObj")
+
+        for (int i = 0; i < paras.length(); i++) {
+            char pt = paras.charAt(i)
+            def argName = "arg" + i
+            switch (pt) {
+                case 'V':
+                    // do noting
+                    break
+                case 'Z':
+                    invokeMethodBuilder.addParameter(boolean.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(boolean.class, argName)
+                    break
+                case 'B':
+                    invokeMethodBuilder.addParameter(byte.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(byte.class, argName)
+                    break
+                case 'S':
+                    invokeMethodBuilder.addParameter(short.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(short.class, argName)
+                    break
+                case 'C' :
+                    invokeMethodBuilder.addParameter(char.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(char.class, argName)
+                    break
+                case 'I':
+                    invokeMethodBuilder.addParameter(int.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(int.class, argName)
+                    break
+                case 'J':
+                    invokeMethodBuilder.addParameter(long.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(long.class, argName)
+                    break
+                case 'F':
+                    invokeMethodBuilder.addParameter(float.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(float.class, argName)
+                    break
+                case 'D':
+                    invokeMethodBuilder.addParameter(double .class, argName)
+                    simpleInvokeMethodBuilder.addParameter(double .class, argName)
+                    break
+                case 'L':
+                    invokeMethodBuilder.addParameter(Object.class, argName)
+                    simpleInvokeMethodBuilder.addParameter(Object.class, argName)
+                    break
+                case '[':
+                    // unsuppot
+                    break
+            }
+        }
+        invokeMethodBuilder.returns(intercpetResult).addJavadoc(methodName);
+        simpleInvokeMethodBuilder.returns(intercpetResult).addCode("return null;\n")
+
+        intercptableBuilder.addMethod(invokeMethodBuilder.build());
+        simpleInterceptorBuilder.addMethod(simpleInvokeMethodBuilder.build())
+    }
+
+    // end : invokeSpecial
+
+
+    JavaFile interceptablejavaFile = JavaFile.builder(
+            "com.baidu.titan.sdk.runtime", intercptableBuilder.build())
+            .build()
+    interceptablejavaFile.writeTo(runtimeSourceDir)
+
+    JavaFile simpleInterceptorjavaFile = JavaFile.builder(
+            "com.baidu.titan.sdk.runtime", simpleInterceptorBuilder.build())
+            .build()
+    simpleInterceptorjavaFile.writeTo(runtimeSourceDir)
+}
+
+def generateInterceptorParameters(def project) {
+    def baseDir = generateSourceBase
+    FieldSpec.Builder specialParasFieldBuilder = FieldSpec.builder(String[].class, "SPECIAL_PARAMETERS")
+            .addModifiers(Modifier.PUBLIC , Modifier.STATIC ,Modifier.FINAL)
+
+    StringBuilder parsSb = new StringBuilder();
+    def parsFile = project.file("src/main/resources/assets/titan/titan_paras")
+
+    boolean firstLine = true
+    parsFile.eachLine { paras ->
+        if (!firstLine) {
+            parsSb.append(", ")
+        }
+        firstLine = false
+        parsSb.append("\"")
+        parsSb.append(paras.trim())
+        parsSb.append("\"")
+    }
+
+    specialParasFieldBuilder.initializer(String.format("new String[] { %s }", parsSb.toString()))
+
+    TypeSpec.Builder parasBuilder = TypeSpec.classBuilder("InteceptParameters")
+            .addModifiers(Modifier.PUBLIC).addField(specialParasFieldBuilder.build())
+
+    JavaFile interceptParaJavaFile = JavaFile.builder("com.baidu.titan.sdk.runtime", parasBuilder.build()).build()
+    interceptParaJavaFile.writeTo(baseDir)
+}
+
+
+dependencies {
+    testCompile 'junit:junit:4.11'
+    compile project(':titan-sdk:annotations')
+}
+
+compileJava.dependsOn generateSource
+
+apply from: rootProject.file('buildSrc/release-publishing.gradle')

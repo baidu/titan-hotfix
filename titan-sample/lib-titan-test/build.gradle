@@ -1,0 +1,57 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-android-extensions'
+
+android {
+    compileSdkVersion 26
+    buildToolsVersion '28.0.3'
+
+    defaultConfig {
+        minSdkVersion 15
+        targetSdkVersion 26
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        main {
+            def patchIndex = project.hasProperty("patchTest") ? Integer.valueOf(project.property("patchTest")) : 0
+            if (patchIndex == 0) {
+                java.srcDirs += ["src/overlay/nopatch/java"]
+            } else if (patchIndex == 1) {
+                java.srcDirs += ["src/overlay/launchcrash/java"]
+            } else if (patchIndex == 2 || patchIndex == 6) {
+                java.srcDirs += ["src/overlay/dexonly/java"]
+            } else if (patchIndex == 6) {
+                java.srcDirs += ["src/overlay/nopatch/java"]
+                // 打禁用包
+            } else if (patchIndex == 7) {
+                java.srcDirs += ["src/overlay/fieldchange/java"]
+            } else if (patchIndex == 8) {
+                java.srcDirs += ["src/overlay/fieldadd/java"]
+            } else if (patchIndex == 9) {
+                java.srcDirs += ["src/overlay/serializable/java"]
+            } else if (patchIndex == 10) {
+                java.srcDirs += ["src/overlay/invokespecialmethod/java"]
+            } else if (patchIndex == 11) {
+                java.srcDirs += ["src/overlay/anonymous/java"]
+            } else if (patchIndex == 12) {
+                java.srcDirs += ["src/overlay/overridemethod/java"]
+            } else if (patchIndex == 13) {
+                java.srcDirs += ["src/overlay/kotlinlambda/java"]
+            }
+
+        }
+    }
+
+}
+
+dependencies {
+    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${KOTLIN_VERSION}"
+}

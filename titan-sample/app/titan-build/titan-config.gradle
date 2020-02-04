@@ -1,0 +1,260 @@
+import java.security.Key
+import java.security.KeyStore
+
+String EXT_TITAN_BUILD = "ext_titan_build"
+
+def configTitan(Project project) {
+
+    def patchVName = "1.0"
+
+
+    def patchIndex = project.hasProperty("patchTest") ? Integer.valueOf(project.property("patchTest")) : 0
+
+    def patchEnableSwitch = project.hasProperty("patchEnable") ? Boolean.valueOf(project.property("patchEnable")) : true
+    if (patchIndex == 6) {
+        patchEnableSwitch = false
+    }
+
+    if (patchIndex != 0) {
+        patchVName = "1." + patchIndex
+    }
+
+
+    def patchVCode = calcPatchVersionCode(patchVName)
+
+    project.titanPatch {
+        enable = project.hasProperty("useTitanPatch")
+        patchEnable = patchEnableSwitch
+
+        versionInfo {
+            hostVersionName = "10.0.0.1"
+            hostVersionCode = 38010880
+            patchVersionName = patchVName
+            patchVersionCode = patchVCode
+            disablePatchVersionCode = patchVCode + 1
+        }
+
+        buildVariant = "release"
+
+        /** 需要从old apk中获取commit id，此设置为获取old apk的策略，值为external或just-build"*/
+        prepareOldProjectPolicy = "external"
+
+        /** prepareOldProjectPolicy为just-build时需要使用，需要提供切换到指定提交的命令*/
+        justBuildInfo {
+            checkout = { String commit , File dir ->
+                File archive = File.createTempFile("arch", ".zip", dir)
+                println "checkout commit = " + commit + " dir = " + dir
+                exec {
+                    workingDir project.rootProject.rootDir
+                    commandLine "git"
+                    args  "archive", "-o", archive.getAbsolutePath(), commit
+                }
+
+                copy {
+                    from zipTree(archive)
+                    into dir
+                }
+                archive.delete()
+            }
+
+            buildTaskName = ["assembleRelease"]
+        }
+
+        oldApkFile {
+            return rootProject.file("titan-product/old.apk")
+        }
+
+        /** prepareOldProjectPolicy为just 为external时需要，指定mapping文件和org-dex文件夹的位置*/
+        externalBuildInfo {
+            mappingFile = rootProject.file("titan-product/mapping.txt")
+            orgDexDir = rootProject.file("titan-product/org-dex")
+        }
+
+        patchPackageName = "com.baidu.titan.patch"
+
+        checkMappingFile = false
+
+        /** 对patch apk进行签名*/
+        patchSignAction = { def unsignedPatch, def signedPatch ->
+            def input =  rootProject.file(unsignedPatch)
+            def output = rootProject.file(signedPatch)
+            try {
+                signApk(input, output, project)
+            } catch (IOException e) {
+                e.printStackTrace()
+            }
+
+        }
+
+        bootClassPath {
+            return project.android.bootClasspath
+        }
+
+        workDir {
+            return rootProject.file("titan-product/workDir")
+        }
+
+        newApkManifestFile {
+            return rootProject.file("app/build/intermediates/manifests/full/release/AndroidManifest.xml")
+        }
+
+    }
+
+    project.titanBuild {
+        enable true
+
+        enableForVariant { variant ->
+            return true
+        }
+
+        // 通过git命令或其它方式获得当前提交的commitId
+        commitId { "1234567" }
+
+        // 当前patch唯一id，可自行实现
+        apkId { "1234567" }
+
+        verifyConfig {
+            signaturePolicy 'V2_ONLY'
+            sigs = ["be2bd7d41106307ae1449ae0846ca4a26405623a"]
+        }
+//
+//        dexMaxIdNumber = 0xFFFF - 9 * 1024
+//        changeAccessFlag true
+//
+//        accessFlagInstrumentFilter { typeDesc ->
+//            if (typeDesc.contains("AccessFlagSample")) {
+//                return false
+//            }
+//            return true
+//        }
+
+        manifestFile { variant ->
+            def variantBuildType = variant.buildType.name.toLowerCase()
+            return project.file("build/intermediates/manifests/full/" + variantBuildType + "/AndroidManifest.xml")
+        }
+
+        bootClassPath {
+            return project.android.bootClasspath
+        }
+    }
+
+
+}
+
+def signApk(def input, def output, Project project) {
+    //sign apk
+    def keystorePropertiesFile = project.rootProject.file("keystore.properties")
+    def keystoreProperties = new Properties()
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    String storeFilePath = keystoreProperties['storeFile']
+    def storepass = keystoreProperties['storePassword']
+    def keypass = keystoreProperties['keyPassword']
+    def keyAlias = keystoreProperties['keyAlias']
+    println(String.format("Signing apk: %s", output.getName()));
+    def storeFile = project.rootProject.file(storeFilePath)
+    String signatureAlgorithm = getSignatureAlgorithm(keystoreProperties);
+    println(String.format("Signing key algorithm is %s", signatureAlgorithm));
+
+    if (output.exists()) {
+        output.delete();
+    }
+    ArrayList<String> command = new ArrayList<>();
+    command.add("jarsigner");
+    command.add("-sigalg");
+    command.add(signatureAlgorithm);
+    command.add("-digestalg");
+    command.add("SHA1");
+    command.add("-keystore");
+    command.add(storeFile.absolutePath);
+    command.add("-storepass");
+    command.add(storepass);
+    command.add("-keypass");
+    command.add(keypass);
+    command.add("-signedjar");
+    command.add(output.getAbsolutePath());
+    command.add(input.getAbsolutePath());
+    command.add(keyAlias);
+
+    Process process = new ProcessBuilder(command).start();
+    process.waitFor();
+    process.destroy();
+    if (!output.exists()) {
+        throw new IOException("Can't Generate signed APK. Please check if your sign info is correct.");
+    }
+}
+
+def getSignatureAlgorithm(Properties keystoreProperties) {
+    InputStream is = null
+    try {
+        String storeFilePath = keystoreProperties['storeFile']
+        def storepass = keystoreProperties['storePassword']
+        def keypass = keystoreProperties['keyPassword']
+        def keyAlias = keystoreProperties['keyAlias']
+        is = new BufferedInputStream(new FileInputStream(rootProject.file(storeFilePath)))
+        KeyStore keyStore = KeyStore.getInstance("JKS");
+        keyStore.load(is, storepass.toCharArray());
+        Key key = keyStore.getKey(keyAlias, keypass.toCharArray());
+        String keyAlgorithm = key.getAlgorithm();
+        String signatureAlgorithm;
+        if (keyAlgorithm.equalsIgnoreCase("DSA")) {
+            signatureAlgorithm = "SHA1withDSA";
+        } else if (keyAlgorithm.equalsIgnoreCase("RSA")) {
+            signatureAlgorithm = "SHA1withRSA";
+        } else if (keyAlgorithm.equalsIgnoreCase("EC")) {
+            signatureAlgorithm = "SHA1withECDSA";
+        } else {
+            throw new RuntimeException("private key is not a DSA or "
+                    + "RSA key");
+        }
+        return signatureAlgorithm;
+    } catch (IOException e) {
+        e.printStackTrace()
+    } finally {
+        if (is != null) {
+            is.close()
+        }
+    }
+}
+
+def getVariantExtConfig(def variant, String key) {
+    def buildType = variant.buildType
+    boolean fromBuildType = buildType.getExtConfigs().containsKey(key)
+
+    def productFlavor = variant.getProductFlavors().size() > 0 ?
+            variant.getProductFlavors()[0] : variant.getMergedFlavor()
+
+    boolean fromProduct = productFlavor.getExtConfigs().containsKey(key)
+
+    if (fromBuildType && fromProduct) {
+        throw new IllegalStateException("extconfig both exist in buildtype and product for variant " + variant)
+    } else if (fromBuildType) {
+        return buildType.getExtConfigs()[key]
+    } else if (fromBuildType) {
+        return productFlavor.getExtConfigs()[key]
+    } else {
+        return null
+    }
+}
+
+/**
+ * 计算patch版本号
+ *
+ * @return patch版本号
+ */
+int calcPatchVersionCode(String patchVName) {
+    String []patchVNameArray = java.util.regex.Pattern.compile("\\.").split(patchVName)
+    int vCode = 0
+    for (String v : patchVNameArray) {
+        vCode = vCode * 100 + Integer.parseInt(v);
+    }
+//    vCode += hostVCode
+    vCode *= 10;
+    return vCode
+
+}
+
+ext {
+    configTitan = this.&configTitan;
+}
+
+

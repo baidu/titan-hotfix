@@ -1,0 +1,1 @@
+测试方法重载的插桩，覆盖所有 Interceptable 类的方法和 InterceptResult 的返回值

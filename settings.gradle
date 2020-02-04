@@ -1,0 +1,16 @@
+rootProject.name = 'Titan-Hotfix'
+
+// titan-sdk begin
+include ':titan-sdk:annotations'
+include ':titan-sdk:runtime'
+include ':titan-sdk:pm'
+include ':titan-sdk:common'
+include ':titan-sdk:all'
+// titan-sdk end
+
+include ':titan-core'
+include ':build-system:titan-gradle-plugin'
+
+// external begin
+include ':external:apktool'
+// external end

@@ -1,0 +1,26 @@
+apply plugin: 'groovy'
+apply plugin: 'java'
+
+[compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
+
+sourceCompatibility = 1.7
+
+//configurations {
+//	provided
+//}
+
+dependencies {
+    testCompile group: 'junit', name: 'junit', version: '4.11'
+    implementation "com.baidu.titan.dex:dex-core:${TITAN_DEX_VERSION}"
+    implementation "com.baidu.titan.dex:dex-linker:${TITAN_DEX_VERSION}"
+    compile project(':titan-sdk:common')
+    implementation project(':titan-core')
+//    compile 'com.google.guava:guava:17.0'
+    compile 'com.android.tools.build:gradle:3.1.2'
+    compile group: 'org.json', name: 'json', version: '20160810'
+    compile gradleApi()
+}
+
+
+
+apply from: rootProject.file('buildSrc/release-publishing.gradle')

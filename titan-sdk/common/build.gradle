@@ -1,0 +1,22 @@
+apply plugin: 'java'
+
+[compileJava, compileTestJava, javadoc]*.options*.encoding = 'UTF-8'
+
+sourceCompatibility = 1.7
+//archivesBaseName = 'com.baidu.titan.sdk'
+
+
+
+dependencies {
+    testCompile 'junit:junit:4.11'
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs += project.file("${project.buildDir}/generated/java")
+        }
+    }
+}
+
+apply from: rootProject.file('buildSrc/release-publishing.gradle')

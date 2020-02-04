@@ -1,0 +1,1 @@
+对修改 field Value 后生成的 lightPatch 进行测试，包括 class field 和 static field

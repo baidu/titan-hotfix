@@ -1,0 +1,22 @@
+
+
+repositories {
+    repositories {
+		maven { url 'http://maven.scm.baidu.com:8081/nexus'  }
+    }
+	mavenCentral()
+    jcenter()
+}
+
+
+
+dependencies {
+
+}
+
+
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+
+
+

@@ -1,0 +1,44 @@
+import com.squareup.javapoet.FieldSpec
+import com.squareup.javapoet.JavaFile
+import com.squareup.javapoet.MethodSpec
+import com.squareup.javapoet.ClassName
+import com.squareup.javapoet.TypeSpec
+import javax.lang.model.element.Modifier
+
+
+apply plugin: 'com.android.library'
+sourceCompatibility = 1.7
+//archivesBaseName = 'com.baidu.titan.sdk'
+
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+    }
+}
+
+tasks.withType(Javadoc) {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.addStringOption('encoding', 'UTF-8')
+    options.addStringOption('charSet', 'UTF-8')
+}
+
+def getAllProgurdFiles() {
+    return [android.getDefaultProguardFile('proguard-android.txt')] as
+            Object[]
+}
+
+
+dependencies {
+    testCompile 'junit:junit:4.11'
+    implementation project(':titan-sdk:annotations')
+    implementation project(':titan-sdk:common')
+}
+
+
+
+apply from: rootProject.file('buildSrc/release-publishing.gradle')
