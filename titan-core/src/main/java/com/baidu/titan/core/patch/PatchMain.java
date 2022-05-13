@@ -21,6 +21,10 @@ import com.baidu.titan.core.patch.light.LightPatch;
 import com.baidu.titan.dex.node.MultiDexFileNode;
 import com.baidu.titan.dex.writer.MultiDexFileWriter;
 
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 
 /**
@@ -94,6 +98,24 @@ public class PatchMain {
             } catch (IOException e) {
                 e.printStackTrace();
                 throw new RuntimeException(e);
+            }
+
+            JSONObject classInfo = lightPatch.getClassInfo();
+            File classInfoFile = new File(argument.getWorkDir(), "classInfo.json");
+            FileWriter fw = null;
+            try {
+                fw = new FileWriter(classInfoFile);
+                fw.write(classInfo.toString());
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                if (fw != null) {
+                    try {
+                        fw.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
             }
         }
 

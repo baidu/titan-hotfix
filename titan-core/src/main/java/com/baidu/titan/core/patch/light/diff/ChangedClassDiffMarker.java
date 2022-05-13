@@ -16,6 +16,7 @@
 
 package com.baidu.titan.core.patch.light.diff;
 
+import com.baidu.titan.core.Constant;
 import com.baidu.titan.core.patch.PatchUtils;
 import com.baidu.titan.core.util.ListDiffer;
 import com.baidu.titan.core.util.TitanLogger;
@@ -76,8 +77,6 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
 
     private DexClassNode mOldOrgClass;
 
-    private DexClassNode mOldInstrumentClass;
-
     private DexClassNode mNewOrgClass;
 
     private DiffContext mDiffContext;
@@ -135,11 +134,9 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
 
     public ChangedClassDiffMarker(DiffContext diffContext,
                                   DexClassNode newClass, DexClassNode oldClass,
-                                  DexClassNode oldInstrumentClass,
                                   boolean ignoreDebugInfo) {
         this.mNewOrgClass = newClass;
         this.mOldOrgClass = oldClass;
-        this.mOldInstrumentClass = oldInstrumentClass;
         this.mIgnoreDebugInfo = ignoreDebugInfo;
         this.mDiffContext = diffContext;
     }
@@ -209,7 +206,9 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
             return this.mDiffStatus;
         }
 
-        if (mOldInstrumentClass.accessFlags.containsNoneOf(DexAccessFlags.ACC_PUBLIC)) {
+        DexAccessFlags instramentAccessFlags = mOldOrgClass
+                .getExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, null);
+        if (instramentAccessFlags != null && instramentAccessFlags.containsNoneOf(DexAccessFlags.ACC_PUBLIC)) {
             mDiffFlags = DIFF_CHANGED_INCOMPATIBLE_CLASS_NOT_PUBLIC;
         }
 
@@ -250,6 +249,9 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
             if (mIncompatibleChangedMethods.size() > 0
                     || mInCompatibleAddedMethods.size() > 0) {
                 mDiffStatus = DiffStatus.CHANGED_INCOMPATIBLE;
+            } else if (mCompatibleAddedMethods.isEmpty() && mCompatibleAddedFields.isEmpty()
+                    && mCompatibleChangedFields.isEmpty() && mCompatibleChangedMethods.isEmpty()){
+                mDiffStatus = DiffStatus.UNCHANGED;
             } else {
                 mDiffStatus = DiffStatus.CHANGED_COMPATIBLE;
             }
@@ -570,11 +572,11 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
 
     @Override
     public void visitClassNodeEnd() {
-        if (mDiffContext.isSupportFinalFieldChange() && mChangedInitMethods.size() > 0) {
-            AffectedFinalFieldMarker marker = new AffectedFinalFieldMarker(mChangedInitMethods,
-                    mNewOrgClass, mOldOrgClass);
-            marker.mark();
-        }
+//        if (mDiffContext.isSupportFinalFieldChange() && mChangedInitMethods.size() > 0) {
+//            AffectedFinalFieldMarker marker = new AffectedFinalFieldMarker(mChangedInitMethods,
+//                    mNewOrgClass, mOldOrgClass);
+//            marker.mark();
+//        }
     }
 
 
@@ -609,12 +611,19 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
 
             @Override
             public DexAnnotationVisitor visitAnnotation(DexAnnotationVisitorInfo annotationInfo) {
-                return super.visitAnnotation(annotationInfo);
+//                return super.visitAnnotation(annotationInfo);
+                return null;
             }
 
             @Override
             public DexFieldVisitor visitField(DexFieldVisitorInfo fieldInfo) {
-                return super.visitField(fieldInfo);
+                DexFieldVisitor delegateDfv =  super.visitField(fieldInfo);
+                return new DexFieldVisitor(delegateDfv) {
+                    @Override
+                    public DexAnnotationVisitor visitAnnotation(DexAnnotationVisitorInfo annotation) {
+                        return null;
+                    }
+                };
             }
 
             @Override
@@ -636,8 +645,10 @@ public class ChangedClassDiffMarker implements DexClassNodeVisitor {
                     @Override
                     public DexAnnotationVisitor visitAnnotation(
                             DexAnnotationVisitorInfo annotationInfo) {
-                        return super.visitAnnotation(annotationInfo);
+//                        return super.visitAnnotation(annotationInfo);
+                        return null;
                     }
+
 
                     @Override
                     public DexAnnotationVisitor visitParameterAnnotation(int parameter,

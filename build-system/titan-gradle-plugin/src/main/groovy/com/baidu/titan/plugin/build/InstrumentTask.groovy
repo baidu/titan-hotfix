@@ -13,27 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package com.baidu.titan.core;
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 
 /**
- * Titan中使用的常量
+ * 执行插桩的 task
  *
- * @author zhangdi07
- * @since 2017/9/14
+ * @author shanghuibo, xuduokai
+ * @since 2020/10/20
  */
-public class Constant {
+public abstract class InstrumentTask extends DefaultTask {
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getDexFolders();
 
-    public static final String EXTRA_KEY_DEX_ID = "dex-id";
-
-    public static final String SUFFIX_GENESIS_TYPE = "$genesis";
-
-    public static final int INIT_CONTEXT_FLAG_INTERCEPTED = 1 << 0;
-
-    public static final int INIT_CONTEXT_FLAG_BUDDY = 1 << 1;
-
-    public static final int INTERCEPT_RESULT_FLAG_INTERCEPTED = 1 << 0;
-
-    public static final String EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS = "instrument_access_flags";
-
+    @TaskAction
+    void instrument() {
+    }
 }

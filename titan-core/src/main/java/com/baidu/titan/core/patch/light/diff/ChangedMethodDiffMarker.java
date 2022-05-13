@@ -399,7 +399,8 @@ public class ChangedMethodDiffMarker extends DexCodeVisitor {
 
             @Override
             public DexAnnotationVisitor visitAnnotation(DexAnnotationVisitorInfo annotationInfo) {
-                return super.visitAnnotation(annotationInfo);
+//                return super.visitAnnotation(annotationInfo);
+                return null;
             }
 
             @Override

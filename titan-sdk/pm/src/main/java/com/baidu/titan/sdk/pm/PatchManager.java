@@ -222,8 +222,9 @@ public class PatchManager {
             IPatchManager pm = IPatchManager.Stub.asInterface(service);
             try {
                 pm.install(mUri, 0, mExtra, mRemoteObserver);
-            } catch (RemoteException e) {
-                e.printStackTrace();
+            } catch (Throwable t) {
+                // 某些业务方出现job service调用过多出现崩溃，catch解决
+                t.printStackTrace();
                 mUiHandler.obtainMessage(MSG_WHAT_PATCH_INSTALL, -100, 0, null).sendToTarget();
             }
         }
@@ -257,8 +258,9 @@ public class PatchManager {
             IPatchManager pm = IPatchManager.Stub.asInterface(service);
             try {
                 pm.requestCleanPatches();
-            } catch (RemoteException e) {
-                e.printStackTrace();
+            } catch (Throwable t) {
+                // 某些业务方出现job service调用过多出现崩溃，catch解决
+                t.printStackTrace();
                 mUiHandler.obtainMessage(MSG_WHAT_UNBIND, -100, 0, null).sendToTarget();
             }
         }

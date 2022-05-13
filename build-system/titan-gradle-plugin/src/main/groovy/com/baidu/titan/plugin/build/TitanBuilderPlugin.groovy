@@ -16,6 +16,7 @@
 
 package com.baidu.titan.plugin.build
 
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.tasks.PackageApplication
 import com.baidu.titan.core.instrument.InstrumentFilter
 import com.baidu.titan.core.instrument.InstrumentMain
@@ -30,6 +31,7 @@ import com.google.common.io.Files
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileCollection
 import org.gradle.api.internal.ConventionMapping
 import org.gradle.api.internal.ConventionTask
@@ -38,6 +40,7 @@ import org.json.JSONObject
 
 import java.nio.charset.Charset
 import java.util.concurrent.Callable
+import java.util.function.Supplier
 
 /**
  * BuildPlugin,主要完成dex插桩和元信息生成等工作
@@ -112,10 +115,36 @@ public class TitanBuilderPlugin implements Plugin<Project> {
 
         PackageApplication packageTask = variant.packageApplication
 
-        packageTask.doFirst {
-            doDexInstrument(variant, buildConfig, project, packageTask, buildBaseDir, orgDexDir, orgDexOutputDir)
-            generateAssert(variant, buildConfig, project, packageTask, buildInfoDir, orgDexDir)
+        def instrumentTask = project.tasks.create(name: "instrument${variant.name.capitalize()}", type: InstrumentTask.class)
+
+        instrumentTask.dexFolders.from(packageTask.dexFolders)
+        packageTask.dependsOn(instrumentTask)
+
+        def mergeAssetTask = variant.mergeAssets
+        instrumentTask.dependsOn(mergeAssetTask)
+
+        mergeAssetTask.doLast {
+            preCreateAssetFile(variant, buildConfig, project, mergeAssetTask, buildInfoDir, orgDexDir)
         }
+
+        // AGP 4.1.0增加了comressAssets task，将assets进行压缩，packageTask拿到的assets目录是compress_assets，里面的文件需要是压缩后的
+        // 直接向其中添加文件会报读取zip文件错误，解决方案有两种，一种是将文件进行压缩写入，一种是在compress前把文件写到compressAssetsTask的inputDir中
+        // 目前采用第二种方案，简化titan的实现，后续如果有问题会进行调整
+        def compressAssetTask = project.tasks.findByName("compress${variant.name.capitalize()}Assets")
+        if (compressAssetTask != null) {
+            compressAssetTask.dependsOn(instrumentTask)
+        }
+
+        instrumentTask.doFirst {
+            doDexInstrument(variant, buildConfig, project, packageTask, buildBaseDir, orgDexDir, orgDexOutputDir)
+            def assetsDir = packageTask.assets
+            if (compressAssetTask != null) {
+                assetsDir = compressAssetTask.inputDir
+            }
+            generateAsset(variant, buildConfig, project, assetsDir, buildInfoDir, orgDexDir)
+        }
+
+
     }
 
     /**
@@ -127,7 +156,12 @@ public class TitanBuilderPlugin implements Plugin<Project> {
         orgDexDir.deleteDir()
         orgDexDir.mkdirs()
 
-        File dexOutDir = packageTask.getDexFolders().getSingleFile()
+        FileCollection dexFolders = packageTask.getDexFolders()
+        dexFolders.each {
+            project.logger.error("dexFolders: " + it.absolutePath)
+        }
+
+        File dexOutDir = packageTask.getDexFolders().files.first()
 
         project.logger.error("begin processing " + dexOutDir)
 
@@ -210,10 +244,67 @@ public class TitanBuilderPlugin implements Plugin<Project> {
     }
 
     /**
-     * 动态生成一些文件到 assert 中
+     * 在mergeAssets阶段提前生成一些文件到 asset 中
      */
-    private void generateAssert(def variant, def buildConfig,
-                                Project project, PackageApplication packageTask,
+    private void preCreateAssetFile(def variant, def buildConfig,
+                                Project project, def mergeAssetTask,
+                                File buildInfoDir, File orgDexDir) {
+        String apkId = null
+
+        if (buildConfig.apkId != null) {
+            apkId = buildConfig.apkId.call(variant)
+        }
+        if (apkId == null || apkId.length() == 0) {
+            throw new TitanBuildException("apkid is empty")
+        }
+
+        buildInfoDir.deleteDir()
+        buildInfoDir.mkdirs()
+        File titanResourceDir = new File(buildInfoDir, "assets/titan")
+        titanResourceDir.mkdirs()
+
+        // build info
+        File buildInfo = new File(titanResourceDir, "buildinfo");
+        buildInfo.createNewFile();
+//        writeBuildInfo(project, buildConfig, buildInfo, orgDexDir, variant)
+
+        // apk id
+        File apkIdInfo = new File(titanResourceDir, "apkid")
+        Files.write(apkId, apkIdInfo, Charset.forName("utf-8"))
+
+        // verify config
+        def verifyConfig = buildConfig.verifyConfig
+        JSONObject verifyConfigJson = new JSONObject();
+        verifyConfigJson.put("signaturePolicy", verifyConfig.signaturePolicy.name())
+        if (verifyConfig.signaturePolicy != SignaturePolicy.NO_SIGNATURE) {
+            if (verifyConfig.sigs == null || verifyConfig.sigs.size() == 0) {
+                throw new TitanBuildException("")
+            }
+            JSONArray sigsJson = new JSONArray()
+
+            for (String sig : verifyConfig.sigs) {
+                sigsJson.put(sig)
+            }
+
+            verifyConfigJson.put("sigs", sigsJson);
+        }
+
+        File sigConfigFile = new File(titanResourceDir, "verify-config")
+        Files.write(verifyConfigJson.toString(), sigConfigFile, Charset.forName("utf-8"))
+
+
+        File titanAssetsDir = new File(buildInfoDir, "assets")
+        project.copy {
+            into(mergeAssetTask.outputDir)
+            from(titanAssetsDir)
+        }
+    }
+
+    /**
+     * 动态生成一些文件到 asset 中
+     */
+    private void generateAsset(def variant, def buildConfig,
+                                Project project, def assets,
                                 File buildInfoDir, File orgDexDir) {
         String apkId = null
 
@@ -257,21 +348,38 @@ public class TitanBuilderPlugin implements Plugin<Project> {
         File sigConfigFile = new File(titanResourceDir, "verify-config")
         Files.write(verifyConfigJson.toString(), sigConfigFile, Charset.forName("utf-8"))
 
-        // append java resources
-        FileCollection newJavaResourceFiles = project.files { buildInfoDir }
-        if (packageTask.getJavaResourceFiles() != null) {
-            newJavaResourceFiles = project.files(buildInfoDir, packageTask.getJavaResourceFiles())
-        }
+        File titanAssetsDir = new File(buildInfoDir, "assets")
+        copyFilesToAssets(assets, project, titanAssetsDir)
+    }
 
-        conventionMappingMap(
-                packageTask,
-                "javaResourceFiles",
-                new Callable<FileCollection>() {
-                    @Override
-                    FileCollection call() throws Exception {
-                        return newJavaResourceFiles
-                    }
-                });
+    /**
+     * 将生成的assets文件copy到merge_assets目录中
+     * @param assets
+     * @param project
+     * @param titanAssetsDir
+     */
+    private void copyFilesToAssets(def assets, Project project, File titanAssetsDir) {
+        if (assets instanceof FileCollection) {
+            println("assets = " + assets.asPath)
+            project.copy {
+                into(assets.asPath)
+                from(titanAssetsDir)
+            }
+        } else if (assets instanceof DirectoryProperty) {
+            println("assets = " + assets.getAsFile().get().absolutePath)
+            project.copy {
+                into(assets)
+                from(titanAssetsDir)
+            }
+        } else if (assets instanceof Supplier<FileCollection>) {
+            println("assets = " + assets.get().asPath)
+            project.copy {
+                into(assets.get().asPath)
+                from(titanAssetsDir)
+            }
+        } else {
+            throw new TitanBuildException("can not copy titan assets to asset dir")
+        }
     }
 
     private void writeBuildInfo(Project project, def buildConfig, File buildInfoFile, File orgDexDir, def variant) {
@@ -302,7 +410,12 @@ public class TitanBuilderPlugin implements Plugin<Project> {
             File mappingFile = new File(project.buildDir,
                     "outputs/mapping/${variant.dirName}/mapping.txt")
             if (!mappingFile.exists()) {
-                throw new TitanBuildException("proguard mapping don't exist")
+                // 解决gradle插件升级到4.x后oem包找不到mapping文件的问题
+                mappingFile = new File(project.buildDir,
+                        "outputs/mapping/${variant.name}/mapping.txt")
+                if (!mappingFile.exists()) {
+                    throw new TitanBuildException("proguard mapping ${mappingFile.absolutePath} don't exist")
+                }
             }
             buildInfo.mappingSha256 = Hashing.sha256().hashBytes(Files.toByteArray(mappingFile)).toString()
         }

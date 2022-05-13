@@ -71,8 +71,6 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
 
     LightPatchClassPools mClassPools;
 
-    private DexClassNode mOldInstrumentedClassNode;
-
     boolean mUseReflection;
 
     boolean mInstrumentedVirtualToPublic = true;
@@ -107,8 +105,6 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
         this.patchArgument = patchArgument;
         this.mOldOrgClassNode = oldOrgClassNode;
         this.mNewOrgClassNode = newOrgClassNode;
-        this.mOldInstrumentedClassNode =
-                classPools.oldInstrumentedClassPool.getProgramClassPool().getClass(oldOrgClassNode.type);
         this.mDexItemFactory = dexFactory;
         this.mClassPools = classPools;
         mInterceptorProcessor = new InterceptorProcessor(mDexItemFactory, this);
@@ -265,7 +261,7 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
             mUnProcessedMethods.put(methodKey, newMethodNode);
 
             if (addToInterceptList) {
-                DexMethodNode oldMethodNode = getMethodNode(methodKey, mOldInstrumentedClassNode);
+                DexMethodNode oldMethodNode = getMethodNode(methodKey, mOldOrgClassNode);
 
                 if (oldMethodNode.isStaticInitMethod()) {
                     mInterceptorProcessor.addStaticInitMethod(oldMethodNode);
@@ -323,17 +319,17 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
             }
         };
 
-        DexClassLoader classLoaderFromOldInstrumentPool = new DexClassLoader() {
+        DexClassLoader classLoaderFromOldPool = new DexClassLoader() {
             @Override
             public DexClassNode findClass(DexType type) {
-                return mClassPools.oldInstrumentedClassPool.findClassFromAll(type);
+                return mClassPools.oldOrgClassPool.findClassFromAll(type);
             }
         };
 
         changedCodeVisitor.visitBegin();
 
         newCodeNode.accept(new DexCodeVisitor(new StaticInitChangedCodeRewriter(
-                changedCodeVisitor, classLoaderFromNewPool, classLoaderFromOldInstrumentPool,
+                changedCodeVisitor, classLoaderFromNewPool, classLoaderFromOldPool,
                 mDexItemFactory, this, newCodeNode)) {
             @Override
             public void visitBegin() {
@@ -368,14 +364,14 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
             }
         };
 
-        DexClassLoader classLoaderFromOldInstrumentPool = new DexClassLoader() {
+        DexClassLoader classLoaderFromOldPool = new DexClassLoader() {
             @Override
             public DexClassNode findClass(DexType type) {
-                return mClassPools.oldInstrumentedClassPool.findClassFromAll(type);
+                return mClassPools.oldOrgClassPool.findClassFromAll(type);
             }
         };
         LightInitMethodSplitter splitter = new LightInitMethodSplitter(this, mChangedClassNode,
-                newMethod, classLoaderFromNewPool, classLoaderFromOldInstrumentPool, mDexItemFactory);
+                newMethod, classLoaderFromNewPool, classLoaderFromOldPool, mDexItemFactory);
         splitter.doSplit();
         mChangedClassNode.addMethod(splitter.getUnInitMethod());
         mChangedClassNode.addMethod(splitter.getInitBodyMethod());
@@ -419,17 +415,17 @@ public class LightChangedClassGenerator implements DexClassNodeVisitor {
             }
         };
 
-        DexClassLoader classLoaderFromOldInstrumentPool = new DexClassLoader() {
+        DexClassLoader classLoaderFromOldPool = new DexClassLoader() {
             @Override
             public DexClassNode findClass(DexType type) {
-                return mClassPools.oldInstrumentedClassPool.findClassFromAll(type);
+                return mClassPools.oldOrgClassPool.findClassFromAll(type);
             }
         };
 
         newCodeNode.accept(
                 new DexCodeVisitor(
                 new NormalChangedCodeRewriter(
-                        changedCodeVisitor, classLoaderFromNewPool, classLoaderFromOldInstrumentPool,
+                        changedCodeVisitor, classLoaderFromNewPool, classLoaderFromOldPool,
                         mDexItemFactory, this, newCodeNode)) {
                     @Override
                     public void visitBegin() {

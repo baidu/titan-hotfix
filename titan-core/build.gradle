@@ -20,6 +20,7 @@ dependencies {
     implementation 'org.ow2.asm:asm:5.0.3'
     implementation 'org.ow2.asm:asm-commons:5.0.3'
     implementation project(path: ':titan-sdk:common')
+    implementation group: 'org.json', name: 'json', version: '20160810'
 }
 
 

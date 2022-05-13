@@ -80,7 +80,7 @@ public class LightInitMethodSplitter {
 
     private DexClassLoader classLoader;
 
-    private DexClassLoader oldInstrumentClassLoader;
+    private DexClassLoader oldClassLoader;
 
     private TitanDexItemFactory mFactory;
 
@@ -101,12 +101,12 @@ public class LightInitMethodSplitter {
     LightInitMethodSplitter(LightChangedClassGenerator host,
                             DexClassNode changedClassNode, DexMethodNode methodNode,
                             DexClassLoader loader,
-                            DexClassLoader oldInstrumentLoader,
+                            DexClassLoader oldLoader,
                             TitanDexItemFactory factory) {
         this.changedClassNode = changedClassNode;
         this.initMethodNode = methodNode;
         this.classLoader = loader;
-        this.oldInstrumentClassLoader = oldInstrumentLoader;
+        this.oldClassLoader = oldLoader;
         this.mFactory = factory;
         this.host = host;
     }
@@ -517,7 +517,7 @@ public class LightInitMethodSplitter {
                                         mFactory.initContextClass.flagField);
                             }
 
-                        }, classLoader, oldInstrumentClassLoader, mFactory, host, orgCodeNode)));
+                        }, classLoader, oldClassLoader, mFactory, host, orgCodeNode)));
 
         DexCodeRegisterCalculator.autoSetRegisterCountForMethodNode(unInitMethodNode);
 
@@ -538,6 +538,10 @@ public class LightInitMethodSplitter {
         initBodyCodeNode.setLineNumbers(initBodyLines);
         List<DexTryCatchNode> initBodyTries = new ArrayList<>();
         initBodyCodeNode.setTryCatches(initBodyTries);
+
+        int initBodyParaRegCount = orgCodeNode.getParameterRegCount() + 1;
+
+        initBodyCodeNode.setRegisters(orgCodeNode.getLocalRegCount(), initBodyParaRegCount);
 
 
         for (int insIdx = spliteInfo.initInvokeInsIdx + 1; insIdx < orgInsList.size(); insIdx++) {
@@ -654,7 +658,7 @@ public class LightInitMethodSplitter {
                                             PreciseConstLoType constLoType = (PreciseConstLoType)regType;
                                             PreciseConstHiType constHiType =
                                                     (PreciseConstHiType)registerPc.getRegTypeFromDexRegister(
-                                                            DexRegister.make(dexRegister.getReg(),
+                                                            DexRegister.make(dexRegister.getReg() + 1,
                                                                     DexRegister.REG_WIDTH_ONE_WORD,
                                                                     dexRegister.getRef()));
                                             long loValue = constLoType.constantValueLo();
@@ -684,7 +688,7 @@ public class LightInitMethodSplitter {
                                                 moveResultOp = Dops.MOVE_RESULT_WIDE;
                                             } else if (regType.isDoubleLo()) {
                                                 primitiveValueMethod = mFactory.doubleClass.primitiveValueMethod;
-                                                checkCastType = mFactory.longClass.boxedType;
+                                                checkCastType = mFactory.doubleClass.boxedType;
                                                 moveResultOp = Dops.MOVE_RESULT_WIDE;
                                             }
                                         }
@@ -716,7 +720,6 @@ public class LightInitMethodSplitter {
                                     } else if (regType.isReferenceTypes()) {
                                         checkCastType = regType.getDexType();
                                     }
-
 
                                     DexRegister restoreRegister;
                                     if (primitiveValueMethod != null) {
@@ -767,7 +770,7 @@ public class LightInitMethodSplitter {
                             public void visitEnd() {
                                 super.visitEnd();
                             }
-                        }, classLoader, oldInstrumentClassLoader, mFactory, host, orgCodeNode));
+                        }, classLoader, oldClassLoader, mFactory, host, orgCodeNode));
         DexCodeRegisterCalculator.autoSetRegisterCountForMethodNode(initBodyMethodNode);
 
         initBodyCodeNode.accept(new DexCodeFormatVerifier());

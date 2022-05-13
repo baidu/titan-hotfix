@@ -58,6 +58,8 @@ public class TitanDexItemFactory extends DexItemFactory {
 
     public final SimpleInterceptorClass simpleInterceptorClass = new SimpleInterceptorClass();
 
+    public final DelegateInterceptorClass delegateInterceptorClass = new DelegateInterceptorClass();
+
     public final InstrumentedClass instrumentedClass = new InstrumentedClass();
 
     public final BuddyClass buddyClass = new BuddyClass();
@@ -76,6 +78,9 @@ public class TitanDexItemFactory extends DexItemFactory {
 
     public final ClassClinitInterceptorStorageClass classClinitInterceptorStorageClass =
             new ClassClinitInterceptorStorageClass();
+
+    public final ClassClinitInterceptorDelegateClass classClinitInterceptorDelegateClass =
+            new ClassClinitInterceptorDelegateClass();
 
     public final TitanRuntimeClass titanRuntimeClass = new TitanRuntimeClass();
 
@@ -245,6 +250,18 @@ public class TitanDexItemFactory extends DexItemFactory {
         public final DexType type = createType("Lcom/baidu/titan/sdk/runtime/SimpleInterceptor;");
 
     }
+
+
+    public class DelegateInterceptorClass {
+
+        public final DexType type = createType("Lcom/baidu/titan/sdk/runtime/InterceptableDelegate;");
+
+        public final DexConst.ConstFieldRef interceptorField = DexConst.ConstFieldRef.make(
+                type,
+                interceptableClass.type,
+                createString("delegate"));
+    }
+
 
     public class BuddyInitContextClass {
 
@@ -700,6 +717,18 @@ public class TitanDexItemFactory extends DexItemFactory {
                         type,
                         classClinitInterceptableClass.type,
                         createString("$ic"));
+    }
+
+    public class ClassClinitInterceptorDelegateClass {
+
+        public final DexType type = createType
+                ("Lcom/baidu/titan/sdk/runtime/ClassClinitInterceptorDelegate;");
+
+        public final DexConst.ConstFieldRef interceptorField =
+                DexConst.ConstFieldRef.make(
+                        type,
+                        classClinitInterceptableClass.type,
+                        createString("delegate"));
     }
 
     public class PatchBaseLoaderClass {

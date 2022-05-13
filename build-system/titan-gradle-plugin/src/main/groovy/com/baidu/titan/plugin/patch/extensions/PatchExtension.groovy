@@ -43,6 +43,9 @@ public class PatchExtension {
     // boot | just-in-time
     String loadPolicy = "boot"
 
+    // sync | async
+    String bootLoadSyncPolicy = "sync"
+
     Closure patchSignAction
 
     Closure bootClassPath

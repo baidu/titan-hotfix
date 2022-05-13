@@ -205,7 +205,7 @@ public class ClassPoolDiffMarker implements DexClassPoolNodeVisitor {
                 break;
             }
             case VISIT_MODE_NEW_CLASS_POOL_CHECK_FINAL_FIELD: {
-                visitClassFromNewPoolCheckFinalField(dcn);
+//                visitClassFromNewPoolCheckFinalField(dcn);
                 break;
             }
             case VISIT_MODE_NEW_CLASS_POOL_REWRITE_CLASS: {
@@ -214,7 +214,7 @@ public class ClassPoolDiffMarker implements DexClassPoolNodeVisitor {
             }
             case VISIT_MODE_REWRITE_CLASS_POOL: {
                 visitClassFromRewritePool(dcn);
-                visitClassFromNewPoolCheckFinalField(dcn);
+//                visitClassFromNewPoolCheckFinalField(dcn);
                 break;
             }
             default: {
@@ -299,9 +299,8 @@ public class ClassPoolDiffMarker implements DexClassPoolNodeVisitor {
             }
         }
 
-        DexClassNode oldInstrumentClass = mDiffContext.oldInstrumentAppPool.findClassFromAll(oldOrgClass.type);
         ChangedClassDiffMarker changedClassDiffMarker = new ChangedClassDiffMarker(mDiffContext,
-                newOrgNode, oldOrgClass, oldInstrumentClass, true);
+                newOrgNode, oldOrgClass, true);
         DiffStatus classDiff = changedClassDiffMarker.diff();
         switch (classDiff) {
             case UNCHANGED: {

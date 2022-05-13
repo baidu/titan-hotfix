@@ -16,6 +16,7 @@
 
 package com.baidu.titan.core.patch.light.generator;
 
+import com.baidu.titan.core.Constant;
 import com.baidu.titan.core.TitanDexItemFactory;
 import com.baidu.titan.core.patch.PatchUtils;
 import com.baidu.titan.core.patch.common.TitanReflectionHelper;
@@ -66,6 +67,7 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
     private LightPatchClassPools mClassPools;
 
     private DexClassLoader mDexClassLoaderFromNewPool;
+    private DexClassLoader mDexClassLoaderFromOldPool;
 
     private boolean mInstrumentedVirtualToPublic = true;
 
@@ -101,6 +103,13 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
                 return mClassPools.newOrgClassPool.findClassFromAll(type);
             }
 
+        };
+
+        mDexClassLoaderFromOldPool = new DexClassLoader() {
+            @Override
+            public DexClassNode findClass(DexType type) {
+                return mClassPools.oldOrgClassPool.findClassFromAll(type);
+            }
         };
 
         int oldAccessFlags = mNewOrgClassNode.accessFlags.getFlags();
@@ -149,7 +158,8 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
             @Override
             public DexCodeVisitor visitCode() {
                 DexCodeVisitor superCodeVisitor = super.visitCode();
-                return new DexCodeRewritter(dmn, superCodeVisitor, mDexClassLoaderFromNewPool);
+                return new DexCodeRewritter(dmn, superCodeVisitor, mDexClassLoaderFromNewPool,
+                        mDexClassLoaderFromOldPool);
             }
         });
     }
@@ -159,14 +169,16 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
         private final DexMethodNode mMethodNode;
 
         private final DexClassLoader mClassLoaderFromNewPool;
+        private final DexClassLoader mClassLoaderFromOldPool;
 
         private TitanReflectionHelper mTitanReflectionHelper;
 
         public DexCodeRewritter(DexMethodNode methodNode, DexCodeVisitor delegate,
-                                DexClassLoader classLoader) {
+                                DexClassLoader classLoader, DexClassLoader oldClassLoader) {
             super(delegate);
             this.mMethodNode = methodNode;
             this.mClassLoaderFromNewPool = classLoader;
+            this.mClassLoaderFromOldPool = oldClassLoader;
             mTitanReflectionHelper = new TitanReflectionHelper(mDexItemFactory, delegate);
         }
 
@@ -247,16 +259,24 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
             ClassLinker linker = new ClassLinker(mDexItemFactory);
 
             DexClassLoader loader = mClassLoaderFromNewPool;
+            DexClassLoader oldLoader = mClassLoaderFromOldPool;
 
             DexMethodNode calledMethodNode = null;
+            DexMethodNode oldCalledMethodNode = null;
 
-            if (dop.isInvokeDirect()) {
+            if (dop.isInvokeDirect() || dop.isInvokeStatic()) {
                 calledMethodNode = linker.findDirectMethod(
                         calledMethodRef.getOwner(),
                         calledMethodRef.getParameterTypes(),
                         calledMethodRef.getReturnType(),
                         calledMethodRef.getName(),
                         loader);
+                oldCalledMethodNode = linker.findDirectMethod(
+                        calledMethodRef.getOwner(),
+                        calledMethodRef.getParameterTypes(),
+                        calledMethodRef.getReturnType(),
+                        calledMethodRef.getName(),
+                        oldLoader);
             } else if (dop.isInvokeVirtual() || dop.isInvokeSuper()) {
                 calledMethodNode = linker.findVirtualMethod(
                         calledMethodRef.getOwner(),
@@ -264,6 +284,12 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
                         calledMethodRef.getReturnType(),
                         calledMethodRef.getName(),
                         loader);
+                oldCalledMethodNode = linker.findVirtualMethod(
+                        calledMethodRef.getOwner(),
+                        calledMethodRef.getParameterTypes(),
+                        calledMethodRef.getReturnType(),
+                        calledMethodRef.getName(),
+                        oldLoader);
             } else if (dop.isInvokeInterface()) {
                 calledMethodNode = linker.findInterfaceMethod(
                         calledMethodRef.getOwner(),
@@ -271,6 +297,12 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
                         calledMethodRef.getReturnType(),
                         calledMethodRef.getName(),
                         loader);
+                oldCalledMethodNode = linker.findInterfaceMethod(
+                        calledMethodRef.getOwner(),
+                        calledMethodRef.getParameterTypes(),
+                        calledMethodRef.getReturnType(),
+                        calledMethodRef.getName(),
+                        oldLoader);
             } else {
                 // impossible
             }
@@ -329,10 +361,25 @@ public class LightAddedClassGenerator implements DexClassNodeVisitor {
                         boolean callDirect = false;
                         boolean callByReflect = false;
                         boolean callChanged = false;
-                        if (calledMethodNode.isVirtualMethod()) {
+                        if (calledMethodNode.isVirtualMethod() || calledMethodNode.isStatic()) {
                             if (calledMethodNode.accessFlags.containsOneOf(
-                                    DexAccessFlags.ACC_PUBLIC) || mInstrumentedVirtualToPublic) {
+                                    DexAccessFlags.ACC_PUBLIC)) {
                                 callDirect = true;
+                            }  else if (mInstrumentedVirtualToPublic) {
+                                callDirect = true;
+                                DexAccessFlags calledMethodAccessFlags = null;
+                                if (oldCalledMethodNode != null) {
+                                    calledMethodAccessFlags = oldCalledMethodNode
+                                            .getExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, null);
+                                }
+                                if (calledMethodAccessFlags == null) {
+                                    calledMethodAccessFlags = calledMethodNode.accessFlags;
+                                }
+                                if (calledMethodAccessFlags.containsNoneOf(DexAccessFlags.ACC_PUBLIC)) {
+                                    // 如果方法是protected 或 package default，在$chg类中调用不到，需要使用反射调用
+                                    callByReflect = true;
+                                    callDirect = false;
+                                }
                             } else if (mUseReflection) {
                                 callByReflect = true;
                             } else {

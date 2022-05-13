@@ -37,6 +37,8 @@ public class TitanConstant {
 
     public static final String VERIFY_CONFIG_ASSETS_PATH = "titan/verify-config";
 
+    public static final String PATCH_CLASS_INFO_PATH = "assets/patchClassInfo";
+
     /**
      * 定义在这里是为了plugin与runtime能够共用这些常量
      */
@@ -49,6 +51,8 @@ public class TitanConstant {
         public static final String KEY_VERSION_INFO = "versionInfo";
 
         public static final String KEY_LOAD_POLICY = "loadPolicy";
+
+        public static final String KEY_BOOT_LOAD_SYNC_POLICY = "bootLoadSyncPolicy";
 
         public static final String KEY_PATCH_VERSIONCODE = "patchVersionCode";
 
@@ -64,5 +68,14 @@ public class TitanConstant {
     public static final int PATCH_LOAD_POLICY_BOOT = 0;
     /** 立即生效 */
     public static final int PATCH_LOAD_POLICY_JUST_IN_TIME = 1;
+
+    /** 类信息分类：懒加载的类*/
+    public static final String KEY_LAZY_INIT_CLASS = "lazy";
+    /** 类信息分类：立即加载的类*/
+    public static final String KEY_INSTANT_INIT_CLASS = "instant";
+
+    /** patch加载同步策略*/
+    public static final int PATCH_BOOT_LOAD_SYNC_POLICY_SYNC = 0;
+    public static final int PATCH_BOOT_LOAD_SYNC_POLICY_ASYNC = 1;
 
 }

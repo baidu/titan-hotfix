@@ -48,6 +48,8 @@ public class AddedMethodDiffMarker extends DexCodeVisitor {
     public static final int DIFF_ADDED_INCOMPATIBLE_OVERRIDE_METHOD = 1 << 3;
     /** just-in-time加载模式下新增了clinit方法，不兼容*/
     public static final int DIFF_ADDED_INCOMPATIBLE_CLINIT_IN_TIME_POLICY = 1 << 4;
+    /** 不支持新增native方法*/
+    public static final int DIFF_ADDED_INCOMPATIBLE_NATIVE_METHOD = 1 << 5;
     /** 记录到dexclassnode中的diff flags key*/
     private static final String ADDED_METHOD_DIFF_FLAGS = "added_method_diff_flags";
 
@@ -85,6 +87,10 @@ public class AddedMethodDiffMarker extends DexCodeVisitor {
             mAddedDiffFlags |= DIFF_ADDED_INCOMPATIBLE_ABSTRACT_METHOD;
         }
 
+        if (mNewMethodNode.accessFlags.containsOneOf(DexAccessFlags.ACC_NATIVE)) {
+            mAddedDiffFlags |= DIFF_ADDED_INCOMPATIBLE_NATIVE_METHOD;
+        }
+
         if (mAddedDiffFlags == 0 && mNewMethodNode.isVirtualMethod()) {
             DexClassNode superClass = this.mNewOrgClassNode;
             DexNamedProtoNode dnp = new DexNamedProtoNode(mNewMethodNode);
@@ -100,7 +106,7 @@ public class AddedMethodDiffMarker extends DexCodeVisitor {
             }
         }
 
-        if (mNewMethodNode.accessFlags.containsNoneOf(DexAccessFlags.ACC_ABSTRACT)) {
+        if (mNewMethodNode.accessFlags.containsNoneOf(DexAccessFlags.ACC_ABSTRACT | DexAccessFlags.ACC_NATIVE)) {
             this.mNewMethodNode.getCode().accept(this);
         }
 

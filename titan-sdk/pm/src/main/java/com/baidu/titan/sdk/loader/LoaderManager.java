@@ -18,7 +18,6 @@ package com.baidu.titan.sdk.loader;
 
 import android.content.Context;
 import android.os.Build;
-import android.os.Process;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -27,9 +26,16 @@ import com.baidu.titan.sdk.config.TitanConfig;
 import com.baidu.titan.sdk.initer.TitanIniter;
 import com.baidu.titan.sdk.internal.util.Closes;
 import com.baidu.titan.sdk.internal.util.Files;
+import com.baidu.titan.sdk.pm.PatchClassInfo;
 import com.baidu.titan.sdk.pm.PatchInstallInfo;
+import com.baidu.titan.sdk.pm.PatchMetaInfo;
 import com.baidu.titan.sdk.pm.PatchVerifier;
 import com.baidu.titan.sdk.pm.TitanPaths;
+import com.baidu.titan.sdk.runtime.ClassClinitInterceptable;
+import com.baidu.titan.sdk.runtime.ClassClinitInterceptorDelegate;
+import com.baidu.titan.sdk.runtime.ClassClinitInterceptorStorage;
+import com.baidu.titan.sdk.runtime.Interceptable;
+import com.baidu.titan.sdk.runtime.InterceptableDelegate;
 import com.baidu.titan.sdk.stat.LoaderTimeStat;
 import com.baidu.titan.sdk.verifier.SignatureVerifier;
 import com.baidu.titan.sdk.verifier.SignatureVerifierKITKAT;
@@ -37,6 +43,7 @@ import com.baidu.titan.sdk.verifier.SignatureVerifierKITKAT;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -72,6 +79,8 @@ public class LoaderManager {
     public static final int LOAD_STATE_ERROR_LOAD_FAIL = -5;
     /** 签名校验失败*/
     public static final int LOAD_STATE_ERROR_SIGNATURE_VERIFY_FAIL = -6;
+    /** 异步加载patch，状态先返回*/
+    public static final int LOAD_STATE_ERROR_ASYNC_LOAD = -7;
 
     private static LoaderManager sInstance;
 
@@ -79,9 +88,12 @@ public class LoaderManager {
 
     private PatchInstallInfo mPatchInstallInfo;
 
+    private volatile Future<Integer> mLoadFuture;
+    /** patch加载状态 */
+    private volatile int mLoadState = LOAD_STATE_ERROR_NOPATCH;
+
     private LoaderManager(Context c) {
         this.mContext = c;
-
     }
 
     public static LoaderManager getInstance() {
@@ -142,6 +154,7 @@ public class LoaderManager {
             String stat = LoaderTimeStat.getInstance().toJSONString();
             Log.d(TAG, stat);
         }
+        mLoadState = result;
         return result;
     }
 
@@ -157,6 +170,7 @@ public class LoaderManager {
             String stat = LoaderTimeStat.getInstance().toJSONString();
             Log.d(TAG, stat);
         }
+        mLoadState = result;
         return result;
     }
 
@@ -165,7 +179,7 @@ public class LoaderManager {
      *
      * @return 加载错误码
      */
-    private int loadInternal(boolean loadInTime) {
+    private int loadInternal(final boolean loadInTime) {
 
         File headFile = TitanPaths.getHeadFile();
         if (!headFile.exists()) {
@@ -215,7 +229,7 @@ public class LoaderManager {
         lastTime = currentTime;
         currentTime = System.currentTimeMillis();
         timeStat.getPatchDir = currentTime - lastTime;
-        PatchInstallInfo installInfo = new PatchInstallInfo(patchDir);
+        final PatchInstallInfo installInfo = new PatchInstallInfo(patchDir);
 
         if (!installInfo.exist() || !installInfo.finished()) {
             if (DEBUG) {
@@ -245,35 +259,119 @@ public class LoaderManager {
 
         mPatchInstallInfo = installInfo;
 
+        PatchMetaInfo metaInfo = PatchMetaInfo.createFromPatch(installInfo.getPatchFile());
 
 
-//        ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-//        Future<Integer> verifyFuture = singleThreadExecutor.submit(new Callable<Integer>() {
-//            @Override
-//            public Integer call() {
-//                int originPriority = Process.getThreadPriority(Process.myTid());
-//                try {
-//                    Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND);
-//                    SignatureVerifier sigVerifier = getSignatureVerifier(mContext, mPatchInstallInfo);
-//
-//                    long sigVerifyTime = System.currentTimeMillis();
-//                    /** titan 签名校验*/
-//                    int sigVerifyResult = sigVerifier.verifySignature();
-//                    LoaderTimeStat.getInstance().verifySignature = System.currentTimeMillis() - sigVerifyTime;
-//                    return sigVerifyResult;
-//                } finally {
-//                    Process.setThreadPriority(originPriority);
-//                }
-//            }
-//        });
+        if (loadInTime || metaInfo.bootLoadSyncPolicy == TitanConstant.PATCH_BOOT_LOAD_SYNC_POLICY_SYNC) {
+            return loadPatch(loadInTime, installInfo);
+        } else {
+            PatchClassInfo patchClassInfo = PatchClassInfo
+                    .createFromPatch(installInfo.getPatchFile());
+            setInterceptorDelegate(patchClassInfo);
+            ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
+            mLoadFuture = singleThreadExecutor.submit(new Callable<Integer>() {
 
+                @Override
+                public Integer call() throws Exception {
+                    int loadState = loadPatch(false, installInfo);
+                    mLoadState = loadState;
+                    return loadState;
+                }
+            });
+            singleThreadExecutor.shutdown();
+            return LOAD_STATE_ERROR_ASYNC_LOAD;
+        }
 
+    }
+
+    /**
+     * 获得当前patch加载状态
+     *
+     * @return patch加载状态
+     */
+    public int getLoadState() {
+        return mLoadState;
+    }
+
+    /**
+     * 等待patch被加载
+     */
+    private void waitLoad() {
+        if (mLoadFuture == null) {
+            return;
+        }
+
+        synchronized (this) {
+            if (mLoadFuture != null) {
+                try {
+                    mLoadFuture.get();
+                    mLoadFuture = null;
+                    return;
+                } catch (Exception e) {
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * patch加载前，给需要设置delegate的类添加delegate类
+     *
+     * @param patchClassInfo patch中修复的类信息
+     */
+    private void setInterceptorDelegate(final PatchClassInfo patchClassInfo) {
+        ClassClinitInterceptable classClinitStub = new ClassClinitInterceptorDelegate() {
+            @Override
+            public boolean waitLoad(int hashCode, String typeDesc) {
+                if (patchClassInfo.lazyClassNames.contains(typeDesc)) {
+                    LoaderManager.this.waitLoad();
+                }
+                return false;
+            }
+        };
+        ClassClinitInterceptorStorage.$ic = classClinitStub;
+
+        for (final String className : patchClassInfo.instantClassNames) {
+            Interceptable delegate = new InterceptableDelegate() {
+                @Override
+                public boolean waitLoad() {
+                    LoaderManager.this.waitLoad();
+                    return true;
+                }
+            };
+
+            try {
+                Class fixClass = Class.forName(className);
+                Field icField = fixClass.getDeclaredField("$ic");
+                icField.setAccessible(true);
+                icField.set(null, delegate);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            } catch (NoSuchFieldException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 进行签名校验和使用classloader加载patch
+     *
+     * @param loadInTime 是否是实时加载
+     * @param installInfo
+     * @return
+     */
+    private int loadPatch(boolean loadInTime, PatchInstallInfo installInfo) {
+        long lastTime;
+        long currentTime = System.currentTimeMillis();
         SignatureVerifier sigVerifier = getSignatureVerifier(mContext, mPatchInstallInfo);
         /** titan 签名校验*/
         int verifyResult = sigVerifier.verifySignature();
 
         lastTime = currentTime;
         currentTime = System.currentTimeMillis();
+        LoaderTimeStat timeStat = LoaderTimeStat.getInstance();
         timeStat.verifySignature = System.currentTimeMillis() - lastTime;
 
         if (verifyResult != PatchVerifier.VERIFY_OK) {
@@ -286,6 +384,7 @@ public class LoaderManager {
         lastTime = currentTime;
         currentTime = System.currentTimeMillis();
         timeStat.getDexPath = currentTime - lastTime;
+
 
         try {
             DelegateClassLoader dcl = new DelegateClassLoader(dexListPath,
@@ -340,7 +439,6 @@ public class LoaderManager {
             Log.e(TAG, "[load] uncatched exception", e);
             return LOAD_STATE_ERROR_LOAD_FAIL;
         }
-
     }
 
     /**

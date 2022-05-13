@@ -49,11 +49,15 @@ public class PatchMetaInfo {
 
     private static final String KEY_LOAD_POLICY = TitanConstant.PatchInfoConstant.KEY_LOAD_POLICY;
 
+    private static final String KEY_BOOT_LOAD_SYNC_POLICY = TitanConstant.PatchInfoConstant.KEY_BOOT_LOAD_SYNC_POLICY;
+
     public String targetId;
 
     public int status;
 
     public int loadPolicy = TitanConstant.PATCH_LOAD_POLICY_BOOT;
+
+    public int bootLoadSyncPolicy = TitanConstant.PATCH_BOOT_LOAD_SYNC_POLICY_SYNC;
 
 //    public int patchVersion;
 
@@ -121,6 +125,8 @@ public class PatchMetaInfo {
             patchMetaInfo.targetId = jsonObject.getString(KEY_TARGET_ID);
             patchMetaInfo.status = jsonObject.getInt(KEY_PATCH_STATUS);
             patchMetaInfo.loadPolicy = jsonObject.optInt(KEY_LOAD_POLICY, TitanConstant.PATCH_LOAD_POLICY_BOOT);
+            patchMetaInfo.bootLoadSyncPolicy = jsonObject.optInt(KEY_BOOT_LOAD_SYNC_POLICY,
+                    TitanConstant.PATCH_BOOT_LOAD_SYNC_POLICY_SYNC);
 
             JSONObject versionInfoJson = jsonObject.getJSONObject(KEY_VERSION_INFO);
 

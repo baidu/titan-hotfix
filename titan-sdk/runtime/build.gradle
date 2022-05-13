@@ -2,6 +2,7 @@ import com.squareup.javapoet.FieldSpec
 import com.squareup.javapoet.JavaFile
 import com.squareup.javapoet.MethodSpec
 import com.squareup.javapoet.ClassName
+import com.squareup.javapoet.TypeName
 import com.squareup.javapoet.TypeSpec
 import javax.lang.model.element.Modifier
 
@@ -52,7 +53,25 @@ def generateInteceptorClass(def project) {
             .addSuperinterface(ClassName.get("com.baidu.titan.sdk.runtime", "Interceptable"))
 //            .addAnnotation(keepAnnotation)
 
+    TypeSpec.Builder delegateInterceptableBuilder = TypeSpec.classBuilder("InterceptableDelegate")
+            .addModifiers(Modifier.PUBLIC)
+            .addModifiers(Modifier.ABSTRACT)
+            .addSuperinterface(ClassName.get("com.baidu.titan.sdk.runtime", "Interceptable"))
+
     ClassName initContext = ClassName.get("com.baidu.titan.sdk.runtime", "InitContext")
+
+
+    FieldSpec delgateField = FieldSpec.builder(new TypeName("Interceptable"),
+            "delegate", Modifier.PUBLIC).build()
+    delegateInterceptableBuilder.addField(delgateField)
+
+    MethodSpec delegateWaitLoad = MethodSpec.methodBuilder("waitLoad")
+            .addModifiers(Modifier.PUBLIC)
+            .addModifiers(Modifier.ABSTRACT)
+            .returns(boolean.class)
+            .build()
+
+    delegateInterceptableBuilder.addMethod(delegateWaitLoad)
 
     // begin : init method
 
@@ -71,6 +90,22 @@ def generateInteceptorClass(def project) {
             .addParameter(initContext, "initContext")
             .returns(void.class).build()
     simpleInterceptorBuilder.addMethod(simpleInvokeUnInit);
+
+    MethodSpec delegateInvokeUnInit = MethodSpec.methodBuilder("invokeUnInit")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .addCode("if (delegate == null) {\n")
+            .addCode("    waitLoad();\n")
+            .addCode("}\n")
+            .addCode("if (delegate == null) {\n")
+            .addCode("    return;\n")
+            .addCode("}\n")
+            .addCode("delegate.invokeUnInit(methodId, initContext);\n")
+            .returns(void.class)
+            .build()
+    delegateInterceptableBuilder.addMethod(delegateInvokeUnInit)
 
 
     MethodSpec invokeInitBody = MethodSpec.methodBuilder("invokeInitBody")
@@ -91,8 +126,23 @@ def generateInteceptorClass(def project) {
             .build()
     simpleInterceptorBuilder.addMethod(simpleInvokeInitBody)
 
-    // end : init method
+    MethodSpec delegateInvokeInitBody = MethodSpec.methodBuilder("invokeInitBody")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(initContext, "initContext")
+            .addCode("if (delegate == null) {\n")
+            .addCode("    waitLoad();\n")
+            .addCode("}\n")
+            .addCode("if (delegate == null) {\n")
+            .addCode("    return;\n")
+            .addCode("}\n")
+            .addCode("delegate.invokeInitBody(methodId, initContext);\n")
+            .returns(void.class)
+            .build()
+    delegateInterceptableBuilder.addMethod(delegateInvokeInitBody)
 
+    // end : init method
 
     // begin : invokeCommon
 
@@ -117,6 +167,23 @@ def generateInteceptorClass(def project) {
             .build()
     simpleInterceptorBuilder.addMethod(simpleInvokeCommon)
 
+    MethodSpec delegateInvokeCommon = MethodSpec.methodBuilder("invokeCommon")
+            .addModifiers(Modifier.PUBLIC)
+            .addAnnotation(Override.class)
+            .addParameter(int.class, "methodId")
+            .addParameter(Object.class, "thisObj")
+            .addParameter(Object[].class, "args")
+            .returns(intercpetResult)
+            .addCode("if (delegate == null) {\n")
+            .addCode("    waitLoad();\n")
+            .addCode("}\n")
+            .addCode("if (delegate == null) {\n")
+            .addCode("    return null;\n")
+            .addCode("}\n")
+            .addCode("return delegate.invokeCommon(methodId, thisObj, args);\n")
+            .build()
+    delegateInterceptableBuilder.addMethod(delegateInvokeCommon)
+
     // end : invokeCommon
 
 
@@ -124,6 +191,7 @@ def generateInteceptorClass(def project) {
 
     parsFile.eachLine { paras->
         def methodName = "invoke" + paras
+        def methodArgs = []
 
         MethodSpec.Builder invokeMethodBuilder = MethodSpec.methodBuilder(methodName)
                 .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
@@ -134,62 +202,90 @@ def generateInteceptorClass(def project) {
                 .addParameter(int.class, "methodId")
                 .addAnnotation(Override.class)
 
+        MethodSpec.Builder delegateInvokeMethodBuilder = MethodSpec.methodBuilder(methodName)
+                .addModifiers(Modifier.PUBLIC)
+                .addParameter(int.class, "methodId")
+                .addAnnotation(Override.class)
+
         invokeMethodBuilder.addParameter(Object.class, "thisObj")
         simpleInvokeMethodBuilder.addParameter(Object.class, "thisObj")
+        delegateInvokeMethodBuilder.addParameter(Object.class, "thisObj")
 
+        methodArgs.add("methodId, thisObj")
         for (int i = 0; i < paras.length(); i++) {
             char pt = paras.charAt(i)
             def argName = "arg" + i
+            methodArgs.add(argName)
             switch (pt) {
                 case 'V':
                     // do noting
+                    methodArgs.remove(argName)
                     break
                 case 'Z':
                     invokeMethodBuilder.addParameter(boolean.class, argName)
                     simpleInvokeMethodBuilder.addParameter(boolean.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(boolean.class, argName)
                     break
                 case 'B':
                     invokeMethodBuilder.addParameter(byte.class, argName)
                     simpleInvokeMethodBuilder.addParameter(byte.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(byte.class, argName)
                     break
                 case 'S':
                     invokeMethodBuilder.addParameter(short.class, argName)
                     simpleInvokeMethodBuilder.addParameter(short.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(short.class, argName)
                     break
                 case 'C' :
                     invokeMethodBuilder.addParameter(char.class, argName)
                     simpleInvokeMethodBuilder.addParameter(char.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(char.class, argName)
                     break
                 case 'I':
                     invokeMethodBuilder.addParameter(int.class, argName)
                     simpleInvokeMethodBuilder.addParameter(int.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(int.class, argName)
                     break
                 case 'J':
                     invokeMethodBuilder.addParameter(long.class, argName)
                     simpleInvokeMethodBuilder.addParameter(long.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(long.class, argName)
                     break
                 case 'F':
                     invokeMethodBuilder.addParameter(float.class, argName)
                     simpleInvokeMethodBuilder.addParameter(float.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(float.class, argName)
                     break
                 case 'D':
                     invokeMethodBuilder.addParameter(double .class, argName)
                     simpleInvokeMethodBuilder.addParameter(double .class, argName)
+                    delegateInvokeMethodBuilder.addParameter(double .class, argName)
                     break
                 case 'L':
                     invokeMethodBuilder.addParameter(Object.class, argName)
                     simpleInvokeMethodBuilder.addParameter(Object.class, argName)
+                    delegateInvokeMethodBuilder.addParameter(Object.class, argName)
                     break
                 case '[':
                     // unsuppot
                     break
             }
         }
+
         invokeMethodBuilder.returns(intercpetResult).addJavadoc(methodName);
         simpleInvokeMethodBuilder.returns(intercpetResult).addCode("return null;\n")
+        delegateInvokeMethodBuilder.returns(intercpetResult)
+                .addCode("if (delegate == null) {\n")
+                .addCode("    waitLoad();\n")
+                .addCode("}\n")
+                .addCode("if (delegate == null) {\n")
+                .addCode("    return null;\n")
+                .addCode("}\n")
+                .addCode("return delegate.$methodName(${methodArgs.join(', ')});\n")
 
         intercptableBuilder.addMethod(invokeMethodBuilder.build());
         simpleInterceptorBuilder.addMethod(simpleInvokeMethodBuilder.build())
+        delegateInterceptableBuilder.addMethod(delegateInvokeMethodBuilder.build())
     }
 
     // end : invokeSpecial
@@ -204,6 +300,11 @@ def generateInteceptorClass(def project) {
             "com.baidu.titan.sdk.runtime", simpleInterceptorBuilder.build())
             .build()
     simpleInterceptorjavaFile.writeTo(runtimeSourceDir)
+
+    JavaFile interceptableDelegatejavaFile = JavaFile.builder(
+            "com.baidu.titan.sdk.runtime", delegateInterceptableBuilder.build())
+            .build()
+    interceptableDelegatejavaFile.writeTo(runtimeSourceDir)
 }
 
 def generateInterceptorParameters(def project) {

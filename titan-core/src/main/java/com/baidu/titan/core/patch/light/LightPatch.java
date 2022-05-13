@@ -16,15 +16,21 @@
 
 package com.baidu.titan.core.patch.light;
 
+import com.baidu.titan.core.Constant;
 import com.baidu.titan.core.TitanDexItemFactory;
 import com.baidu.titan.core.patch.PatchArgument;
 import com.baidu.titan.core.patch.PatchException;
+import com.baidu.titan.core.patch.PatchUtils;
 import com.baidu.titan.core.patch.light.diff.ClassPoolDiffMarker;
 import com.baidu.titan.core.patch.light.diff.DiffContext;
 import com.baidu.titan.core.patch.light.diff.DiffStatus;
+import com.baidu.titan.core.patch.light.generator.LightClassClinitInterceptorGenerator;
 import com.baidu.titan.core.patch.light.generator.LightDexPatchGenerator;
 import com.baidu.titan.core.pool.ApplicationDexPool;
 import com.baidu.titan.core.util.TitanLogger;
+import com.baidu.titan.dex.DexAccessFlags;
+import com.baidu.titan.dex.DexItemFactory;
+import com.baidu.titan.dex.DexString;
 import com.baidu.titan.dex.DexType;
 import com.baidu.titan.dex.extensions.BestEffortMultiDexSplitter;
 import com.baidu.titan.dex.extensions.DexClassKindMarker;
@@ -35,15 +41,20 @@ import com.baidu.titan.dex.extensions.MethodIdAssigner;
 import com.baidu.titan.dex.extensions.MultiDexSplitter;
 import com.baidu.titan.dex.node.DexClassNode;
 import com.baidu.titan.dex.node.DexClassPoolNode;
+import com.baidu.titan.dex.node.DexMethodNode;
 import com.baidu.titan.dex.node.MultiDexFileNode;
 import com.baidu.titan.dex.visitor.DexClassPoolNodeVisitor;
+import com.baidu.titan.sdk.common.TitanConstant;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -101,13 +112,11 @@ public class LightPatch {
         mClassPools.oldOrgClassPool = oldOrgDexPool;
 
         // old instrumented class pool
-        ApplicationDexPool oldInstrumentedDexPool = new ApplicationDexPool(factory);
-        setupForOldInstrumentedProject(oldInstrumentedDexPool, mArgument);
-        mClassPools.oldInstrumentedClassPool = oldInstrumentedDexPool;
+
+        setupForOldInstrumentedProject(mClassPools.oldOrgClassPool, mArgument, factory);
+//        mClassPools.oldInstrumentedClassPool = oldInstrumentedDexPool;
         // assign method id for old instrumented class
-        oldInstrumentedDexPool.getProgramClassPool().forEach((t, classNode) -> {
-            MethodIdAssigner.assignMethodId(classNode);
-        });
+
 
         // new org class pool
         ApplicationDexPool newOrgDexPool = new ApplicationDexPool(factory);
@@ -125,10 +134,26 @@ public class LightPatch {
 
     }
 
+    private static String getMethodSignature(DexMethodNode methodNode) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(methodNode.owner.toTypeDescriptor());
+        sb.append("->");
+        sb.append(methodNode.name.toString());
+        sb.append("(");
+        if (methodNode.parameters != null) {
+            for (int i = 0; i < methodNode.parameters.count(); i++) {
+                sb.append(methodNode.parameters.getType(i).toTypeDescriptor());
+            }
+        }
+        sb.append(")");
+        sb.append(methodNode.returnType.toTypeDescriptor());
+        return sb.toString();
+    }
+
     public boolean analyze() {
         DiffContext diffContext = new DiffContext(mClassPools.newOrgClassPool,
                 mClassPools.oldOrgClassPool,
-                mClassPools.oldInstrumentedClassPool,
                 mClassPools.rewriteClassPool,
                 mDexFactory, mArgument.isSupportFinalFieldChange(),
                 mArgument.getClassPatchFilter(),
@@ -234,6 +259,7 @@ public class LightPatch {
         PatchArgument.OldProjectInfo oldProjectInfo = argument.oldProject;
 
         appPool.fillProgramDexs(oldProjectInfo.getOldOrgDexs());
+        oldProjectInfo.setOldOrgDexs(null);
 
         for (File libraryFile: argument.getBootClassPath()) {
             JarInputStream jarInput = null;
@@ -289,11 +315,13 @@ public class LightPatch {
         return true;
     }
 
-    private static boolean setupForOldInstrumentedProject(ApplicationDexPool appPool,
-                                                          PatchArgument argument) {
+    private static boolean setupForOldInstrumentedProject(ApplicationDexPool oldOrgPool,
+                                                          PatchArgument argument, DexItemFactory factory) {
+        ApplicationDexPool appPool = new ApplicationDexPool(factory);
         PatchArgument.OldProjectInfo oldProjectInfo = argument.oldProject;
 
         appPool.fillProgramDexs(oldProjectInfo.getOldInstrumentedDexs());
+        oldProjectInfo.setOldInstrumentedDexs(null);
 
         for (File libraryFile: argument.getBootClassPath()) {
             JarInputStream jarInput = null;
@@ -336,15 +364,62 @@ public class LightPatch {
         }
 
         // setup for class hierarchy
-        appPool.acceptAll(new DexSuperClassHierarchyFiller(appPool::findClassFromAll));
-        appPool.acceptAll(new DexSubClassHierarchyFiller(appPool::findClassFromAll));
-        appPool.acceptAll(new DexInterfacesHierarchyFiller(appPool::findClassFromAll));
+//        appPool.acceptAll(new DexSuperClassHierarchyFiller(appPool::findClassFromAll));
+//        appPool.acceptAll(new DexSubClassHierarchyFiller(appPool::findClassFromAll));
+//        appPool.acceptAll(new DexInterfacesHierarchyFiller(appPool::findClassFromAll));
+//
+//        // mark class kind
+//        appPool.acceptProgram(
+//                new DexClassKindMarker(DexClassKindMarker.ClassKind.CLASS_KIND_PROGRAM));
+//        appPool.acceptLibrary(
+//                new DexClassKindMarker(DexClassKindMarker.ClassKind.CLASS_KIND_LIBRARY));
 
-        // mark class kind
-        appPool.acceptProgram(
-                new DexClassKindMarker(DexClassKindMarker.ClassKind.CLASS_KIND_PROGRAM));
-        appPool.acceptLibrary(
-                new DexClassKindMarker(DexClassKindMarker.ClassKind.CLASS_KIND_LIBRARY));
+        appPool.getProgramClassPool().forEach((t, classNode) -> {
+            MethodIdAssigner.assignMethodId(classNode);
+            final HashMap<DexString, DexAccessFlags> flagsMap = new HashMap<>();
+            classNode.getFields().forEach(fieldNode -> {
+                flagsMap.put(fieldNode.name, fieldNode.accessFlags);
+            });
+
+            final HashMap<String, DexAccessFlags> methodFlagsMap = new HashMap<>();
+            final HashMap<String, Integer> methodIdMap = new HashMap<>();
+
+            classNode.getMethods().forEach(methodNode -> {
+                methodFlagsMap.put(getMethodSignature(methodNode), methodNode.accessFlags);
+                methodIdMap.put(getMethodSignature(methodNode), methodNode.getExtraInfo("_extra_method_id"));
+            });
+
+            DexClassNode oldOrgClassNode = oldOrgPool.findClassFromAll(classNode.type);
+            if (oldOrgClassNode != null) {
+                oldOrgClassNode.setExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, classNode.accessFlags);
+                oldOrgClassNode.getFields().forEach(fieldNode -> {
+                    DexAccessFlags flags = flagsMap.get(fieldNode.name);
+                    if (flags == null) {
+                        System.out.println("method " + fieldNode + " access flags is null");
+                    }
+                    fieldNode.setExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, flags);
+                    if (classNode.type.toTypeDescriptor().contains("DebugViewModel")) {
+                        if (fieldNode.name.toString().contains("isShow")) {
+                            System.out.println(fieldNode + " accessflags = " +  flags.getFlags());
+                        }
+                    }
+                });
+
+                oldOrgClassNode.getMethods().forEach(methodNode -> {
+                    String methodSignature = getMethodSignature(methodNode);
+                    DexAccessFlags flags = methodFlagsMap.get(methodSignature);
+                    if (flags == null) {
+                        System.out.println("method " + methodNode + " access flags is null");
+                    }
+
+                    methodNode.setExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, flags);
+                    if (methodIdMap.containsKey(methodSignature)) {
+                        int methodId = methodIdMap.get(methodSignature);
+                        methodNode.setExtraInfo("_extra_method_id", methodId);
+                    }
+                });
+            }
+        });
         return true;
     }
 
@@ -352,6 +427,7 @@ public class LightPatch {
         PatchArgument.NewProjectInfo newProjectInfo = argument.newProject;
 
         appPool.fillProgramDexs(newProjectInfo.getNewOrgDexs());
+        newProjectInfo.setNewOrgDexs(null);
 
         for (File libraryFile: argument.getBootClassPath()) {
             JarInputStream jarInput = null;
@@ -409,4 +485,28 @@ public class LightPatch {
         return true;
     }
 
+    /**
+     * 获取patch中被修复的类信息
+     * 目前分成两部分，一部分是被懒加载的类的typeDesc，一部分是需要立即加载的类的className
+     *
+     * @return patch中被修复的类信息
+     */
+    public JSONObject getClassInfo() {
+        JSONObject classInfo = new JSONObject();
+        JSONArray lazyHashCode = new JSONArray();
+        JSONArray instantInitClass = new JSONArray();
+        mClassPools.interceptorClassPool.getProgramClassPool().stream()
+                .forEach(dcn -> {
+                    DexType orgType = PatchUtils.getOrgTypeFromInterceptorType(dcn.type, mDexFactory);
+                    if (LightClassClinitInterceptorGenerator.isInterceptorLazyInitAble(dcn)) {
+                        lazyHashCode.put(orgType.toTypeDescriptor());
+                    } else {
+                        String className = PatchUtils.descToType(orgType.toTypeDescriptor());
+                        instantInitClass.put(className);
+                    }
+                });
+        classInfo.put(TitanConstant.KEY_LAZY_INIT_CLASS, lazyHashCode);
+        classInfo.put(TitanConstant.KEY_INSTANT_INIT_CLASS, instantInitClass);
+        return classInfo;
+    }
 }

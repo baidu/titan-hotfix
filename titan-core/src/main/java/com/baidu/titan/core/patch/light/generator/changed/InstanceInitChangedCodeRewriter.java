@@ -16,6 +16,7 @@
 
 package com.baidu.titan.core.patch.light.generator.changed;
 
+import com.baidu.titan.core.Constant;
 import com.baidu.titan.core.TitanDexItemFactory;
 import com.baidu.titan.core.patch.PatchUtils;
 import com.baidu.titan.core.patch.common.TitanReflectionHelper;
@@ -50,7 +51,8 @@ import com.baidu.titan.dex.visitor.DexLabel;
 /** package */ class InstanceInitChangedCodeRewriter extends DexCodeVisitor {
 
     private DexClassLoader mClassLoaderFromNewPool;
-    private DexClassLoader mClassLoaderFromOldInstrumentPool;
+
+    private DexClassLoader mClassLoaderFromOldPool;
 
     private TitanReflectionHelper mTitanReflectionHelper;
 
@@ -62,7 +64,7 @@ import com.baidu.titan.dex.visitor.DexLabel;
 
     public InstanceInitChangedCodeRewriter(DexCodeVisitor delegate,
                                            DexClassLoader classLoaderFromNewPool,
-                                           DexClassLoader classLoaderFromOldInstrumentPool,
+                                           DexClassLoader classLoaderFromOldPool,
                                            TitanDexItemFactory dexItemFactory,
                                            LightChangedClassGenerator host,
                                            DexCodeNode newCodeNode) {
@@ -70,7 +72,7 @@ import com.baidu.titan.dex.visitor.DexLabel;
         this.mHost = host;
         this.mDexItemFactory = dexItemFactory;
         this.mClassLoaderFromNewPool = classLoaderFromNewPool;
-        mClassLoaderFromOldInstrumentPool = classLoaderFromOldInstrumentPool;
+        mClassLoaderFromOldPool = classLoaderFromOldPool;
         this.mNewCodeNode = newCodeNode;
         mTitanReflectionHelper = new TitanReflectionHelper(mDexItemFactory, delegate);
     }
@@ -133,10 +135,10 @@ import com.baidu.titan.dex.visitor.DexLabel;
         ClassLinker linker = new ClassLinker(mDexItemFactory);
 
         DexClassLoader loader = mClassLoaderFromNewPool;
-        DexClassLoader instruementedLoader = mClassLoaderFromOldInstrumentPool;
+        DexClassLoader oldLoader = mClassLoaderFromOldPool;
 
         DexMethodNode calledMethodNode = null;
-        DexMethodNode instrementedCalledMethodNode = null;
+        DexMethodNode oldCalledMethodNode = null;
 
         if (dop.isInvokeDirect() || dop.isInvokeStatic()) {
             calledMethodNode = linker.findDirectMethod(
@@ -145,12 +147,12 @@ import com.baidu.titan.dex.visitor.DexLabel;
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
                     loader);
-            instrementedCalledMethodNode = linker.findDirectMethod(
+            oldCalledMethodNode = linker.findDirectMethod(
                     calledMethodRef.getOwner(),
                     calledMethodRef.getParameterTypes(),
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
-                    instruementedLoader);
+                    oldLoader);
         } else if (dop.isInvokeVirtual() || dop.isInvokeSuper()) {
             calledMethodNode = linker.findVirtualMethod(
                     calledMethodRef.getOwner(),
@@ -158,12 +160,12 @@ import com.baidu.titan.dex.visitor.DexLabel;
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
                     loader);
-            instrementedCalledMethodNode = linker.findVirtualMethod(
+            oldCalledMethodNode = linker.findVirtualMethod(
                     calledMethodRef.getOwner(),
                     calledMethodRef.getParameterTypes(),
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
-                    instruementedLoader);
+                    oldLoader);
         } else if (dop.isInvokeInterface()) {
             calledMethodNode = linker.findInterfaceMethod(
                     calledMethodRef.getOwner(),
@@ -171,12 +173,12 @@ import com.baidu.titan.dex.visitor.DexLabel;
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
                     loader);
-            instrementedCalledMethodNode = linker.findInterfaceMethod(
+            oldCalledMethodNode = linker.findInterfaceMethod(
                     calledMethodRef.getOwner(),
                     calledMethodRef.getParameterTypes(),
                     calledMethodRef.getReturnType(),
                     calledMethodRef.getName(),
-                    instruementedLoader);
+                    oldLoader);
         } else {
             // impossible
         }
@@ -227,10 +229,19 @@ import com.baidu.titan.dex.visitor.DexLabel;
                 boolean callByReflect = false;
                 boolean callChanged = false;
                 if (dop.isInvokeSuper()) {
-                    if (instrementedCalledMethodNode.accessFlags
+                    DexAccessFlags calledMethodAccessFlags = null;
+                    if (oldCalledMethodNode != null) {
+                        calledMethodAccessFlags = oldCalledMethodNode
+                                .getExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, null);
+                    }
+
+                    if (calledMethodAccessFlags == null) {
+                        calledMethodAccessFlags = calledMethodNode.accessFlags;
+                    }
+                    if (calledMethodAccessFlags
                             .containsNoneOf(DexAccessFlags.ACC_PUBLIC | DexAccessFlags.ACC_PROTECTED)) {
                         throw new IllegalStateException("can not invoke package private super method "
-                                + instrementedCalledMethodNode.toString());
+                                + calledMethodNode.toString());
                     }
                     callDirect = true;
                 } else if (calledMethodNode.isVirtualMethod() || calledMethodNode.isStatic()) {
@@ -239,7 +250,15 @@ import com.baidu.titan.dex.visitor.DexLabel;
                         callDirect = true;
                     } else if (mHost.mInstrumentedVirtualToPublic) {
                         callDirect = true;
-                        if (instrementedCalledMethodNode.accessFlags.containsNoneOf(DexAccessFlags.ACC_PUBLIC)) {
+                        DexAccessFlags calledMethodAccessFlags = null;
+                        if (oldCalledMethodNode != null) {
+                            calledMethodAccessFlags = oldCalledMethodNode
+                                    .getExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, null);
+                        }
+                        if (calledMethodAccessFlags == null) {
+                            calledMethodAccessFlags = calledMethodNode.accessFlags;
+                        }
+                        if (calledMethodAccessFlags.containsNoneOf(DexAccessFlags.ACC_PUBLIC)) {
                             /*
                             Java Virtual Machine specification中对protected和package private的field和method的访问控制做了规定
                             5.3 Creation and Loading
@@ -258,8 +277,7 @@ import com.baidu.titan.dex.visitor.DexLabel;
                             callByReflect = true;
                             callDirect = false;
                         }
-                    }
-                    else if (mHost.mUseReflection
+                    } else if (mHost.mUseReflection
                             // 抽象方法只能通过反射调用，copy到$chg类中会报错导致生成patch失败
                             || calledMethodNode.accessFlags.containsOneOf(DexAccessFlags.ACC_ABSTRACT)) {
                         callByReflect = true;
@@ -348,13 +366,13 @@ import com.baidu.titan.dex.visitor.DexLabel;
 
         ClassLinker linker = new ClassLinker(mDexItemFactory);
         DexClassLoader loader = mClassLoaderFromNewPool;
-        DexClassLoader oldInstrumentLoader = mClassLoaderFromOldInstrumentPool;
+        DexClassLoader oldLoader = mClassLoaderFromOldPool;
 
         DexFieldNode accessedField = linker.resolveFieldJLS(fieldRef.getOwner(),
                 fieldRef.getName(), fieldRef.getType(), loader);
 
-        DexFieldNode accessedFieldInOldInstrument = linker.resolveFieldJLS(fieldRef.getOwner(),
-                fieldRef.getName(), fieldRef.getType(), oldInstrumentLoader);
+        DexFieldNode accessedFieldInOld = linker.resolveFieldJLS(fieldRef.getOwner(),
+                fieldRef.getName(), fieldRef.getType(), oldLoader);
 
         if (accessedField != null) {
             DiffMode fieldDiff = ChangedClassDiffMarker.getFieldDiffMode(accessedField);
@@ -391,11 +409,27 @@ import com.baidu.titan.dex.visitor.DexLabel;
             } else if (fieldDiff.isChanged() || fieldDiff.isUnChanged()) {
                 boolean accessDirect = false;
                 boolean accessByReflect = false;
-                // 如果field是protected, private或者package private，在$chg类中调用不到，需要使用反射调用
-                if (accessedFieldInOldInstrument.accessFlags.containsOneOf(DexAccessFlags.ACC_PRIVATE
+                // 如果field是protected, private或者package-private，在$chg类中调用不到，需要使用反射调用
+                DexAccessFlags accessedFieldAccessFlags = null;
+                if (accessedFieldInOld != null) {
+                    accessedFieldAccessFlags = accessedFieldInOld
+                            .getExtraInfo(Constant.EXTRA_KEY_INSTRUMENT_ACCESS_FLAGS, null);
+                }
+                if (accessedFieldAccessFlags == null) {
+                    accessedFieldAccessFlags = accessedField.accessFlags;
+                    System.out.println("field " + accessedField + " access flags is null ");
+                }
+                if (accessedFieldAccessFlags.containsOneOf(DexAccessFlags.ACC_PRIVATE
                         | DexAccessFlags.ACC_PROTECTED)
-                        || accessedFieldInOldInstrument.accessFlags.containsNoneOf(DexAccessFlags.ACC_PRIVATE
+                        || accessedFieldAccessFlags.containsNoneOf(DexAccessFlags.ACC_PRIVATE
                         | DexAccessFlags.ACC_PROTECTED | DexAccessFlags.ACC_PUBLIC)) {
+                    accessByReflect = true;
+                } else if (accessedFieldAccessFlags
+                        .containsAllOf(DexAccessFlags.ACC_STATIC | DexAccessFlags.ACC_FINAL)
+                        && dop.isFieldStaticPut()) {
+                    accessByReflect = true;
+                } else if (accessedFieldAccessFlags.containsAllOf(DexAccessFlags.ACC_FINAL)
+                        && dop.isFieldInstancePut()) {
                     accessByReflect = true;
                 }
                 // TODO check accessible

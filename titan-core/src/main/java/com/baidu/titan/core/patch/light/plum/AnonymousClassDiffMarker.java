@@ -183,8 +183,6 @@ public class AnonymousClassDiffMarker {
                     DexClassNode normalizedOldDcn = cache.getNormalizedClassNode(diffContext.oldOrgAppPool,
                             diffContext.dexItemFactory, dcn);
 
-                    DexClassNode oldInstrumentClass = diffContext.oldInstrumentAppPool.findClassFromAll(dcn.type);
-
                     // 检查是否有可以认为是发生变化的类
                     for (DexClassNode newDcn : sortedNewAnonyDcnList) {// 将 new dex class node归一化
                         DiffMode diffMode = ClassPoolDiffMarker.getClassDiffMode(newDcn);
@@ -196,7 +194,7 @@ public class AnonymousClassDiffMarker {
 
                         // 对比两个归一类的差异
                         ChangedClassDiffMarker changedClassDiffMarker = new ChangedClassDiffMarker(diffContext,
-                                normalizedNewDcn, normalizedOldDcn, oldInstrumentClass, true);
+                                normalizedNewDcn, normalizedOldDcn, true);
                         DiffStatus classDiff = changedClassDiffMarker.diff();
                         if (classDiff == DiffStatus.CHANGED_COMPATIBLE
                                 && !changedClassDiffMarker.shouldCopyClass()) {
@@ -268,7 +266,8 @@ public class AnonymousClassDiffMarker {
 
             @Override
             public DexAnnotationVisitor visitAnnotation(DexAnnotationVisitorInfo annotationInfo) {
-                return super.visitAnnotation(annotationInfo);
+//                return super.visitAnnotation(annotationInfo);
+                return null;
             }
 
             @Override

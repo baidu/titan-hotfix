@@ -1,7 +1,7 @@
 ### gradle.properties定义常量
 ```
-TITAN_PLUGIN_VERSION=1.0.2
-TITAN_RUNTIME_VERSION=1.0.2
+TITAN_PLUGIN_VERSION=1.0.13
+TITAN_RUNTIME_VERSION=1.0.13
 ```
 
 ### 添加maven repositories

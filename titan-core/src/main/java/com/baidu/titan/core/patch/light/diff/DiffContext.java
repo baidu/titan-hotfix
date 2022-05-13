@@ -36,15 +36,11 @@ public class DiffContext {
 
     public ApplicationDexPool oldOrgAppPool;
 
-    public ApplicationDexPool oldInstrumentAppPool;
-
     public ApplicationDexPool rewriteClassPool;
 
     public DexClassLoader classLoaderFromNewPool;
 
     public DexClassLoader classLoaderFromOldPool;
-
-    public DexClassLoader classLoaderFromOldInstrumentPool;
 
     public TitanDexItemFactory dexItemFactory;
 
@@ -59,7 +55,6 @@ public class DiffContext {
 
     public DiffContext(ApplicationDexPool newOrgAppPool,
                        ApplicationDexPool oldOrgAppPool,
-                       ApplicationDexPool oldInstrumentAppPool,
                        ApplicationDexPool rewriteClassPool,
                        TitanDexItemFactory dexItemFactory, boolean supportFinalFieldChange,
                        PatchArgument.ClassPatchFilter classPatchFilter,
@@ -67,7 +62,6 @@ public class DiffContext {
         this.dexItemFactory = dexItemFactory;
         this.newOrgAppPool = newOrgAppPool;
         this.oldOrgAppPool = oldOrgAppPool;
-        this.oldInstrumentAppPool = oldInstrumentAppPool;
         this.rewriteClassPool = rewriteClassPool;
         this.classLoaderFromNewPool = new DexClassLoader() {
             @Override
@@ -83,12 +77,6 @@ public class DiffContext {
             @Override
             public DexClassNode findClass(DexType type) {
                 return oldOrgAppPool.findClassFromAll(type);
-            }
-        };
-        this.classLoaderFromOldInstrumentPool = new DexClassLoader() {
-            @Override
-            public DexClassNode findClass(DexType type) {
-                return oldInstrumentAppPool.findClassFromAll(type);
             }
         };
         linker = new ClassLinker(dexItemFactory);

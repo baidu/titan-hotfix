@@ -37,6 +37,7 @@ dependencies {
     testCompile 'junit:junit:4.11'
     implementation project(':titan-sdk:annotations')
     implementation project(':titan-sdk:common')
+    implementation project(':titan-sdk:runtime')
 }
 
 

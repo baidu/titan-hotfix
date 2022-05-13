@@ -18,7 +18,7 @@ package com.baidu.titan.plugin.patch
 
 import com.baidu.titan.core.patch.PatchArgument
 import com.baidu.titan.core.patch.PatchPolicy
-import com.baidu.titan.core.util.TitanLogger;
+import com.baidu.titan.core.util.TitanLogger
 import com.baidu.titan.sdk.common.TitanConstant
 import com.baidu.titan.core.patch.PatchMain
 import com.baidu.titan.dex.MultiDexFileBytes
@@ -40,6 +40,7 @@ import org.gradle.api.tasks.GradleBuild
 import org.json.JSONObject
 
 import java.util.function.Consumer
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -369,7 +370,9 @@ public class TitanPatchPlugin implements Plugin<Project> {
         // new project
 
         patchArg.newProject.setNewOrgDexs(MultiDexFileBytes.createFromDirectory(newDexDir))
-        patchArg.newProject.setManifestFile(patchConfig.newApkManifestFile.call(applicationVariant))
+        if (patchConfig.newApkManifestFile != null) {
+            patchArg.newProject.setManifestFile(patchConfig.newApkManifestFile.call(applicationVariant))
+        }
 
         def proguardMap = getClassMapping(opi.mappingFile)
 
@@ -429,7 +432,6 @@ public class TitanPatchPlugin implements Plugin<Project> {
 //            throw new PatchException("patch gen failed")
 //        }
 
-
         dexsOutput.forEach(new Consumer<MultiDexFileBytes.Entry>() {
             @Override
             void accept(MultiDexFileBytes.Entry entry) {
@@ -439,6 +441,20 @@ public class TitanPatchPlugin implements Plugin<Project> {
             }
         })
 
+        File classInfoFile = new File(patchArg.getWorkDir(), "classInfo.json")
+        if (classInfoFile.exists()) {
+            def patchClassInfoEntry = new ZipEntry(TitanConstant.PATCH_CLASS_INFO_PATH)
+            def data = classInfoFile.bytes
+            patchClassInfoEntry.setMethod(ZipEntry.STORED)
+            patchClassInfoEntry.setSize(data.length)
+            patchClassInfoEntry.setCompressedSize(data.length)
+            def crc32 = new CRC32()
+            crc32.update(data)
+            patchClassInfoEntry.setCrc(crc32.getValue())
+            patchZos.putNextEntry(patchClassInfoEntry)
+            patchZos.write(data)
+            patchZos.closeEntry()
+        }
     }
 
     /**
@@ -451,13 +467,15 @@ public class TitanPatchPlugin implements Plugin<Project> {
         if (mappingFile != null && mappingFile.exists()) {
             Map<String, String> map = new HashMap<>()
             mappingFile.eachLine { String line ->
-                char firstChar = line.charAt(0)
-                if (!firstChar.isWhitespace()) {
-                    String[] lineArray = line.split("->")
-                    String originClassName = lineArray[0].trim()
-                    String proguardedClassName = lineArray[1].trim()
-                    proguardedClassName = proguardedClassName.replace(":", "")
-                    map.put(proguardedClassName, originClassName)
+                if (line.length() > 0) {
+                    char firstChar = line.charAt(0)
+                    if (!firstChar.isWhitespace() && line.contains("->")) {
+                        String[] lineArray = line.split("->")
+                        String originClassName = lineArray[0].trim()
+                        String proguardedClassName = lineArray[1].trim()
+                        proguardedClassName = proguardedClassName.replace(":", "")
+                        map.put(proguardedClassName, originClassName)
+                    }
                 }
             }
             return map
@@ -467,7 +485,6 @@ public class TitanPatchPlugin implements Plugin<Project> {
 
 
     private void writePatchInfo(ZipOutputStream patchZos, boolean patchEnable, def patchConfig, String apkId) {
-        patchZos.putNextEntry(new ZipEntry(TitanConstant.PATCH_INFO_PATH))
         JSONObject patchInfoJson = new JSONObject();
         // status == 1 : avaiable
         // status == 0 : unavaiable
@@ -477,7 +494,14 @@ public class TitanPatchPlugin implements Plugin<Project> {
         int loadPolicy = "boot".equals(patchConfig.loadPolicy) ? TitanConstant.PATCH_LOAD_POLICY_BOOT
             : TitanConstant.PATCH_LOAD_POLICY_JUST_IN_TIME
 
+        println("bootLoadSyncPolicy = ${patchConfig.bootLoadSyncPolicy}")
+
+        int boolLoadSyncPolicy = "async".equals(patchConfig.bootLoadSyncPolicy)
+                ? TitanConstant.PATCH_BOOT_LOAD_SYNC_POLICY_ASYNC : TitanConstant.PATCH_BOOT_LOAD_SYNC_POLICY_SYNC
+
         patchInfoJson.put(TitanConstant.PatchInfoConstant.KEY_LOAD_POLICY, loadPolicy)
+
+        patchInfoJson.put(TitanConstant.PatchInfoConstant.KEY_BOOT_LOAD_SYNC_POLICY, boolLoadSyncPolicy)
 
         patchInfoJson.put(TitanConstant.PatchInfoConstant.KEY_TARGET_ID, apkId)
 
@@ -516,14 +540,35 @@ public class TitanPatchPlugin implements Plugin<Project> {
             patchInfoJson.put("patchPackage", patchConfig.patchPackageName)
         }
 
-        patchZos.write(patchInfoJson.toString().getBytes("utf-8"))
+        def infoEntry = new ZipEntry(TitanConstant.PATCH_INFO_PATH)
+        def data = patchInfoJson.toString().getBytes("utf-8")
+        infoEntry.setMethod(ZipEntry.STORED)
+        infoEntry.setSize(data.length)
+        infoEntry.setCompressedSize(data.length)
+        def crc32 = new CRC32()
+        crc32.update(data)
+        infoEntry.setCrc(crc32.getValue())
+
+        patchZos.putNextEntry(infoEntry)
+        patchZos.write(data)
         patchZos.closeEntry()
     }
 
     Task getProguardTask(Project project, String variantName) {
         String proguardTaskName = "transformClassesAndResourcesWithProguardFor${variantName.capitalize()}"
         project.logger.error("progarud name = " + proguardTaskName)
-        return project.tasks.findByName(proguardTaskName)
+        def proguardTask =  project.tasks.findByName(proguardTaskName)
+        if (proguardTask == null) {
+            // 解决gradle 插件升级到4.x查找proguard task的问题
+            proguardTaskName = "minify${variantName.capitalize()}WithProguard"
+            proguardTask =  project.tasks.findByName(proguardTaskName)
+        }
+        if (proguardTask == null) {
+            // 解决开启R8时查找proguard task的问题
+            proguardTaskName = "minify${variantName.capitalize()}WithR8"
+            proguardTask =  project.tasks.findByName(proguardTaskName)
+        }
+        return proguardTask
     }
 
 }

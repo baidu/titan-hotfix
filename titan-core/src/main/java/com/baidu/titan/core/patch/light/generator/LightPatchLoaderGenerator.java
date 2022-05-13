@@ -33,6 +33,7 @@ import com.baidu.titan.dex.extensions.DexCodeRegisterCalculator;
 import com.baidu.titan.dex.node.DexClassNode;
 import com.baidu.titan.dex.visitor.DexClassVisitor;
 import com.baidu.titan.dex.visitor.DexCodeVisitor;
+import com.baidu.titan.dex.visitor.DexLabel;
 import com.baidu.titan.dex.visitor.DexMethodVisitor;
 import com.baidu.titan.dex.visitor.DexMethodVisitorInfo;
 
@@ -202,6 +203,7 @@ public class LightPatchLoaderGenerator {
      */
     private void generateLazyLoadApplyCode(DexCodeVisitor applyCodeVisitor) {
         int vClassClinitIter = 0;
+        int vClassClinitDelgater = 1;
         // new-instance v0, Lcom/baidu/titan/patch/ClassClinitInterceptor;
         applyCodeVisitor.visitConstInsn(Dops.NEW_INSTANCE,
                 DexRegisterList.make(DexRegister.makeLocalReg(vClassClinitIter)),
@@ -216,12 +218,46 @@ public class LightPatchLoaderGenerator {
                         mDexItemFactory.voidClass.primitiveType,
                         DexTypeList.empty()));
 
+
+        applyCodeVisitor.visitConstInsn(
+                Dops.SGET_OBJECT,
+                DexRegisterList.make(
+                        DexRegister.makeLocalReg(vClassClinitDelgater)),
+                mDexItemFactory.classClinitInterceptorStorageClass.interceptorField
+        );
+
+        DexLabel setDelegateLabel = new DexLabel();
+        applyCodeVisitor.visitTargetInsn(
+                Dops.IF_EQZ,
+                DexRegisterList.make(DexRegister.makeLocalReg(vClassClinitDelgater)),
+                setDelegateLabel);
+
+        applyCodeVisitor.visitConstInsn(Dops.CHECK_CAST,
+                DexRegisterList.make(DexRegister.makeLocalReg(vClassClinitDelgater)),
+                DexConst.ConstType.make(mDexItemFactory.classClinitInterceptorDelegateClass.type));
+
+        applyCodeVisitor.visitConstInsn(
+                Dops.IPUT_OBJECT,
+                DexRegisterList.make(
+                        DexRegister.makeLocalReg(vClassClinitIter),
+                        DexRegister.makeLocalReg(vClassClinitDelgater)),
+                mDexItemFactory.classClinitInterceptorDelegateClass.interceptorField
+        );
+
+
+        DexLabel lazyLoadEndLabel = new DexLabel();
+        applyCodeVisitor.visitTargetInsn(Dops.GOTO, DexRegisterList.empty(), lazyLoadEndLabel);
+
+
+        applyCodeVisitor.visitLabel(setDelegateLabel);
         // sput-object v0, ClassClinitInterceptorStorage -> $ic
         applyCodeVisitor.visitConstInsn(
                 Dops.SPUT_OBJECT,
                 DexRegisterList.make(
                         DexRegister.makeLocalReg(vClassClinitIter)),
                 mDexItemFactory.classClinitInterceptorStorageClass.interceptorField);
+
+        applyCodeVisitor.visitLabel(lazyLoadEndLabel);
     }
 
     /**
@@ -238,6 +274,7 @@ public class LightPatchLoaderGenerator {
      */
     private void generateInitInterceptorCode(DexCodeRegisterCalculator applyCodeVisitor, boolean checkLazy) {
         final int vInterceptorReg = 0;
+        final int vDelegateInterceptorReg = 1;
         mClassPools.interceptorClassPool.getProgramClassPool().stream()
                 .filter(dcn -> !checkLazy || !LightClassClinitInterceptorGenerator.isInterceptorLazyInitAble(dcn))
                 .forEach(dcn -> {
@@ -255,6 +292,40 @@ public class LightPatchLoaderGenerator {
                                     mDexItemFactory.methods.initMethodName,
                                     mDexItemFactory.voidClass.primitiveType,
                                     DexTypeList.empty()));
+
+                    applyCodeVisitor.visitConstInsn(
+                            Dops.SGET_OBJECT,
+                            DexRegisterList.make(
+                                    DexRegister.makeLocalReg(vDelegateInterceptorReg)),
+                            DexConst.ConstFieldRef.make(
+                                    PatchUtils.getOrgTypeFromInterceptorType(dcn.type, mDexItemFactory),
+                                    mDexItemFactory.interceptableClass.type,
+                                    mDexItemFactory.instrumentedClass.interceptorFieldName)
+                    );
+
+                    DexLabel setDelegateLabel = new DexLabel();
+                    applyCodeVisitor.visitTargetInsn(
+                            Dops.IF_EQZ,
+                            DexRegisterList.make(DexRegister.makeLocalReg(vDelegateInterceptorReg)),
+                            setDelegateLabel);
+
+                    applyCodeVisitor.visitConstInsn(Dops.CHECK_CAST,
+                            DexRegisterList.make(DexRegister.makeLocalReg(vDelegateInterceptorReg)),
+                            DexConst.ConstType.make(mDexItemFactory.delegateInterceptorClass.type));
+
+                    applyCodeVisitor.visitConstInsn(
+                            Dops.IPUT_OBJECT,
+                            DexRegisterList.make(
+                                    DexRegister.makeLocalReg(vInterceptorReg),
+                                    DexRegister.makeLocalReg(vDelegateInterceptorReg)),
+                            mDexItemFactory.delegateInterceptorClass.interceptorField
+                    );
+
+
+                    DexLabel setInterceptorEndLabel = new DexLabel();
+                    applyCodeVisitor.visitTargetInsn(Dops.GOTO, DexRegisterList.empty(), setInterceptorEndLabel);
+
+                    applyCodeVisitor.visitLabel(setDelegateLabel);
                     applyCodeVisitor.visitConstInsn(
                             Dops.SPUT_OBJECT,
                             DexRegisterList.make(DexRegister.makeLocalReg(vInterceptorReg)),
@@ -262,6 +333,7 @@ public class LightPatchLoaderGenerator {
                                     PatchUtils.getOrgTypeFromInterceptorType(dcn.type, mDexItemFactory),
                                     mDexItemFactory.interceptableClass.type,
                                     mDexItemFactory.instrumentedClass.interceptorFieldName));
+                    applyCodeVisitor.visitLabel(setInterceptorEndLabel);
 
                 });
     }
